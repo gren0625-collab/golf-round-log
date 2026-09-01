@@ -1,0 +1,31 @@
+{
+  "name": "AIGolf 落下点ノート",
+  "short_name": "落下点ノート",
+  "description": "ゴルフのラウンド中に、打った場所と球のあった場所をGPSで記録する。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0D1411",
+  "theme_color": "#19613F",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

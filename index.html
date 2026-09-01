@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#19613F">
+<meta name="description" content="ゴルフのラウンド中に、打った場所と球のあった場所をGPSで記録する1枚のページ。">
+<title>AIGolf 落下点ノート</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="落下点ノート">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+</head>
+<body>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   AIGolf 落下点ノート
+   日向で・片手で・歩きながら叩く道具。読み物やない。
+   色は飾りやのうて状態そのもの： ターフ緑=打った / 黄土=球のとこ
+   日本語は端末の書体（電波が無い所で崩れんため）。数字だけ Barlow Condensed。
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --ground:#E8ECE3;  --surface:#F8FAF5;  --surface-2:#DCE3D5;
+  --ink:#131B16;     --ink-mute:#586A5D; --line:#C4CEBD;
+  --tee:#19613F;     --tee-ink:#FFFFFF;
+  --ball:#A75E15;    --ball-ink:#FFFFFF;
+  --ok:#2C8355;      --warn:#9C7112;     --bad:#A63C33;
+  --shadow:0 1px 0 rgba(19,27,22,.10), 0 6px 18px rgba(19,27,22,.07);
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0D1411;  --surface:#161F1A;  --surface-2:#1F2B24;
+    --ink:#E6EDE5;     --ink-mute:#93A398; --line:#2B382F;
+    --tee:#2E9463;     --tee-ink:#04150C;
+    --ball:#DA8B2C;    --ball-ink:#201302;
+    --ok:#48B87B;      --warn:#D6A63C;     --bad:#D96C5F;
+    --shadow:0 1px 0 rgba(0,0,0,.5), 0 8px 22px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0D1411;  --surface:#161F1A;  --surface-2:#1F2B24;
+  --ink:#E6EDE5;     --ink-mute:#93A398; --line:#2B382F;
+  --tee:#2E9463;     --tee-ink:#04150C;
+  --ball:#DA8B2C;    --ball-ink:#201302;
+  --ok:#48B87B;      --warn:#D6A63C;     --bad:#D96C5F;
+  --shadow:0 1px 0 rgba(0,0,0,.5), 0 8px 22px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",
+              "Noto Sans JP",system-ui,-apple-system,sans-serif;
+  font-size:17px; line-height:1.5;
+  -webkit-text-size-adjust:100%;
+  -webkit-tap-highlight-color:transparent;
+}
+.num{font-family:"Barlow Condensed","Roboto Condensed",system-ui,sans-serif;
+     font-variant-numeric:tabular-nums; font-weight:700; letter-spacing:.01em}
+
+.app{
+  min-height:100dvh; max-width:520px; margin:0 auto;
+  display:grid; grid-template-rows:auto auto 1fr auto;
+  gap:12px; padding:12px 14px calc(14px + env(safe-area-inset-bottom));
+}
+
+/* ── 上：測位の状態 ───────────────────────────────── */
+.bar{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:10px 14px; box-shadow:var(--shadow);
+}
+.fix{display:flex; align-items:center; gap:9px; min-width:0}
+.dot{width:11px; height:11px; border-radius:50%; background:var(--ink-mute); flex:none}
+.dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+.fix-t{font-size:15px; color:var(--ink-mute); white-space:nowrap;
+       overflow:hidden; text-overflow:ellipsis}
+.fix-t b{color:var(--ink); font-weight:600}
+.count{font-size:14px; color:var(--ink-mute); white-space:nowrap}
+.count .num{font-size:21px; color:var(--ink); margin-right:2px}
+
+/* ── ホールと番手 ─────────────────────────────────── */
+.setup{display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:stretch}
+.hole{
+  display:flex; align-items:center; gap:2px;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:4px; box-shadow:var(--shadow);
+}
+.hole button{
+  width:42px; height:52px; border:0; background:transparent; color:var(--ink-mute);
+  font-size:26px; line-height:1; border-radius:10px; cursor:pointer;
+}
+.hole button:active{background:var(--surface-2)}
+.hole .val{text-align:center; padding:0 4px; min-width:62px}
+.hole .val .num{display:block; font-size:30px; line-height:1}
+.hole .val small{display:block; font-size:11px; color:var(--ink-mute); letter-spacing:.14em}
+
+.clubs{
+  display:flex; gap:6px; overflow-x:auto; align-items:center;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:6px; box-shadow:var(--shadow);
+  scrollbar-width:none;
+}
+.clubs::-webkit-scrollbar{display:none}
+.clubs button{
+  flex:none; min-width:52px; height:48px; padding:0 10px;
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+  border-radius:10px; font-size:17px; font-weight:600; cursor:pointer;
+  font-family:"Barlow Condensed",system-ui,sans-serif; letter-spacing:.02em;
+}
+.clubs button[aria-pressed="true"]{
+  background:var(--ink); color:var(--surface); border-color:var(--ink);
+}
+
+/* ── 主役のボタン ─────────────────────────────────── */
+main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
+.hit{
+  width:100%; height:100%; min-height:190px;
+  border:0; border-radius:20px; cursor:pointer;
+  display:grid; align-content:center; justify-items:center; gap:6px;
+  padding:20px; text-align:center;
+  transition:transform .08s ease, filter .12s ease;
+  box-shadow:var(--shadow);
+}
+.hit:active{transform:scale(.985); filter:brightness(1.06)}
+.hit:focus-visible{outline:4px solid var(--ink); outline-offset:3px}
+.hit[data-state="tee"]{background:var(--tee); color:var(--tee-ink)}
+.hit[data-state="ball"]{background:var(--ball); color:var(--ball-ink)}
+.hit[data-state="geo"]{background:var(--surface); color:var(--ink);
+                       border:2px dashed var(--line)}
+.hit .lead{font-size:13px; letter-spacing:.2em; opacity:.78}
+.hit .big{font-size:34px; font-weight:700; line-height:1.2; text-wrap:balance}
+.hit .sub{font-size:14px; opacity:.8}
+
+.row{display:grid; grid-template-columns:1fr auto auto; gap:8px}
+.ghost{
+  border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  border-radius:12px; min-height:52px; padding:0 16px; font-size:16px;
+  cursor:pointer; box-shadow:var(--shadow);
+}
+.ghost:active{background:var(--surface-2)}
+.ghost:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
+.ghost[disabled]{opacity:.42; cursor:default}
+
+/* ── 下：直前の一本 ───────────────────────────────── */
+.last{
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:12px 14px; box-shadow:var(--shadow);
+  display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center;
+}
+.last .yd{display:flex; align-items:baseline; gap:4px}
+.last .yd .num{font-size:44px; line-height:.9}
+.last .yd span{font-size:14px; color:var(--ink-mute)}
+.last .meta{font-size:14px; color:var(--ink-mute); line-height:1.45; min-width:0}
+.last .meta b{color:var(--ink); font-weight:600}
+.last.empty{color:var(--ink-mute); display:block; text-align:center; font-size:15px}
+
+/* ── 書き出しの覆い ───────────────────────────────── */
+.sheet{
+  position:fixed; inset:0; background:var(--ground);
+  display:grid; grid-template-rows:auto 1fr auto; gap:12px;
+  padding:14px calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom));
+  max-width:520px; margin:0 auto; z-index:10;
+}
+.sheet[hidden]{display:none}
+.sheet .who{display:grid; gap:6px}
+.sheet h2{margin:0; font-size:20px}
+.sheet label{font-size:13px; color:var(--ink-mute)}
+.sheet input{
+  width:100%; min-height:52px; padding:0 14px; font-size:18px;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:12px;
+  font-family:inherit;
+}
+.sheet input:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
+.sheet p{margin:0; font-size:14px; color:var(--ink-mute)}
+.sheet textarea{
+  width:100%; height:100%; resize:none;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--r); padding:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px; line-height:1.55; white-space:pre; overflow:auto;
+}
+.sheet .foot{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.danger{color:var(--bad); border-color:var(--bad)}
+
+.note{font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--ink-mute); text-align:center; line-height:1.55}
+.note b{color:var(--bad)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+
+  <div class="bar">
+    <div class="fix">
+      <span class="dot" id="dot"></span>
+      <span class="fix-t" id="fixText">測位を始めとる…</span>
+    </div>
+    <div class="count"><span class="num" id="nRec">0</span>件</div>
+  </div>
+
+  <div class="setup">
+    <div class="hole">
+      <button type="button" id="holeDown" aria-label="ホールを戻す">−</button>
+      <div class="val"><span class="num" id="holeNo">1</span><small>HOLE</small></div>
+      <button type="button" id="holeUp" aria-label="次のホール">＋</button>
+    </div>
+    <div class="clubs" id="clubs" role="group" aria-label="番手"></div>
+  </div>
+
+  <main>
+    <button type="button" class="hit" id="hit" data-state="tee" disabled>
+      <span class="lead" id="hitLead">HOLE 1 ・ 1打目</span>
+      <span class="big" id="hitBig">測位を待っとる</span>
+      <span class="sub" id="hitSub">空が見える所で数秒待って</span>
+    </button>
+
+    <div class="row">
+      <button type="button" class="ghost" id="undo" disabled>直前を取り消す</button>
+      <button type="button" class="ghost" id="skip">素振り扱い</button>
+      <button type="button" class="ghost" id="open">書き出す</button>
+    </div>
+  </main>
+
+  <div class="last empty" id="last">まだ1本も記録しとらん</div>
+  <p class="note" id="diag" hidden></p>
+</div>
+
+<section class="sheet" id="sheet" hidden aria-label="書き出し">
+  <div class="who">
+    <h2>今日のぶんを書き出す</h2>
+    <label for="player">誰のぶんか（混ぜんための名前。空でもええ）</label>
+    <input id="player" type="text" inputmode="text" autocomplete="off"
+           placeholder="じぶん" maxlength="24">
+    <p id="sheetCount">0件</p>
+  </div>
+  <textarea id="csv" readonly spellcheck="false"></textarea>
+  <div class="foot">
+    <button type="button" class="ghost" id="copy">全部コピー</button>
+    <button type="button" class="ghost" id="dl">ファイルに保存</button>
+    <button type="button" class="ghost" id="close" style="grid-column:1/-1">戻る</button>
+    <button type="button" class="ghost danger" id="wipe" style="grid-column:1/-1">全部消す</button>
+  </div>
+  <p class="note" id="wipeNote" hidden><b>もう一回押したらほんまに消える。</b>コピーは済んどるか？</p>
+</section>
+
+<script>
+(function(){
+  "use strict";
+  var KEY="aigolf.roundlog.v1";
+  var CLUBS=["D","3W","5W","U","4I","5I","6I","7I","8I","9I","PW","AW","SW","PT"];
+
+  var S={recs:[],hole:1,shot:1,club:"D",pending:null,player:""};
+  var fix=null;      // 直近の測位
+  var geoErr=null;   // 画面に出す文言
+  var errCode=null;  // 1=拒否 2=取れん 3=時間切れ
+  var asked=false;   // 一度でも要求したか
+  var t0=0;
+  var perm="?";      // granted / prompt / denied
+  var watchId=null;
+
+  function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
+  function load(){
+    try{
+      var v=localStorage.getItem(KEY); if(!v) return;
+      var o=JSON.parse(v);
+      if(o&&Array.isArray(o.recs)){
+        S.recs=o.recs; S.hole=o.hole||1; S.shot=o.shot||1;
+        S.club=o.club||"D"; S.pending=o.pending||null; S.player=o.player||"";
+      }
+    }catch(e){}
+  }
+
+  function geo(a,b){
+    var R=6371008.8, r=Math.PI/180;
+    var p1=a.lat*r, p2=b.lat*r, dp=(b.lat-a.lat)*r, dl=(b.lon-a.lon)*r;
+    var h=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+    var m=2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+    var y=Math.sin(dl)*Math.cos(p2);
+    var x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+    return {m:m, yd:m/0.9144, brg:(Math.atan2(y,x)/r+360)%360};
+  }
+  function compass(d){
+    var n=["北","北北東","北東","東北東","東","東南東","南東","南南東",
+           "南","南南西","南西","西南西","西","西北西","北西","北北西"];
+    return n[Math.round(d/22.5)%16];
+  }
+
+  /* ── 測位 ───────────────────────────────────────────
+     ★iOSのSafariは「ページを開いた勢い」で出した要求では許可を聞いてこん
+       ことがある。**必ず指で押したのを起点に呼ぶ。**                */
+  function got(p){
+    geoErr=null; errCode=null;
+    fix={lat:p.coords.latitude, lon:p.coords.longitude,
+         acc:p.coords.accuracy==null?null:Math.round(p.coords.accuracy),
+         alt:p.coords.altitude==null?null:Math.round(p.coords.altitude*10)/10,
+         t:new Date(p.timestamp).toISOString()};
+    paint();
+  }
+  function failed(e){
+    errCode=e&&e.code;
+    geoErr = errCode===1 ? "位置情報が許可されとらん"
+           : errCode===3 ? "測位が時間切れ。空の見える所でもう一回"
+           : "測位でけへん"+(e&&e.message?"（"+e.message+"）":"");
+    paint();
+  }
+  function startGeo(){
+    if(!navigator.geolocation){ geoErr="この端末では位置情報が使えん"; return paint(); }
+    asked=true; t0=Date.now(); geoErr=null; errCode=null; paint();
+    navigator.geolocation.getCurrentPosition(got, failed,
+        {enableHighAccuracy:true, maximumAge:0, timeout:25000});
+    if(watchId!=null) navigator.geolocation.clearWatch(watchId);
+    watchId=navigator.geolocation.watchPosition(got, failed,
+        {enableHighAccuracy:true, maximumAge:2000, timeout:25000});
+  }
+  if(navigator.permissions&&navigator.permissions.query){
+    try{
+      navigator.permissions.query({name:"geolocation"}).then(function(r){
+        perm=r.state; paint();
+        r.onchange=function(){ perm=r.state; paint(); };
+      },function(){});
+    }catch(e){}
+  }
+
+  var $=function(id){ return document.getElementById(id); };
+
+  function paint(){
+    var acc=fix&&fix.acc!=null?fix.acc:null;
+    $("dot").className="dot"+(geoErr?" bad":acc==null?"":acc<=8?" ok":acc<=20?" warn":" bad");
+    $("fixText").innerHTML = fix
+      ? ("測位 <b>±"+(acc==null?"?":acc)+"m</b>"+(acc>20?"　空の見える所へ":""))
+      : geoErr ? geoErr : asked ? "許可と測位を待っとる…" : "まだ測位しとらん";
+
+    $("nRec").textContent=S.recs.length;
+    $("holeNo").textContent=S.hole;
+
+    var b=$("hit");
+    b.disabled=false;
+    b.dataset.state = !fix ? "geo" : (S.pending?"ball":"tee");
+    $("hitLead").textContent = !fix ? "はじめに1回だけ"
+      : "HOLE "+S.hole+" ・ "+S.shot+"打目"+(S.pending?"（"+S.pending.club+"）":"");
+    $("hitBig").textContent = !fix ? (asked?"もう一回 測位する":"位置情報をオンにする")
+      : S.pending ? "球はここやった" : "ここで打った";
+    $("hitSub").textContent = !fix
+      ? (asked ? "聞かれたら「Webサイトの使用中は許可」を押して" : "押したら iPhone が許可を聞いてくる")
+      : S.pending ? "球のとこまで歩いて、球の横で押す" : "打つ前に、打つ場所で押す";
+
+    $("undo").disabled=!(S.pending||S.recs.length);
+    $("undo").textContent=S.pending?"打った所を取り消す":"直前の1本を消す";
+    $("skip").disabled=(!!S.pending)||(!fix);
+
+    var L=$("last"), r=S.recs[S.recs.length-1];
+    if(!r){ L.className="last empty"; L.textContent="まだ1本も記録しとらん"; }
+    else{
+      L.className="last";
+      L.innerHTML='<div class="yd"><span class="num">'+Math.round(r.yd)+'</span><span>yd</span></div>'+
+        '<div class="meta"><b>'+r.club+'</b>　'+compass(r.brg)+' '+Math.round(r.brg)+'°<br>'+
+        'HOLE '+r.hole+' ・ '+r.shot+'打目　±'+(r.ballAcc==null?"?":r.ballAcc)+'m</div>'+
+        '<div class="meta" style="text-align:right">'+Math.round(r.m)+'<br>m</div>';
+    }
+    var cs=$("clubs").children;
+    for(var i=0;i<cs.length;i++)
+      cs[i].setAttribute("aria-pressed", cs[i].textContent===S.club?"true":"false");
+
+    var d=$("diag");                       // 取れとる時は出さん
+    d.hidden=!!fix;
+    if(!fix){
+      d.textContent="安全な接続:"+(window.isSecureContext?"○":"×")+
+        " / API:"+(navigator.geolocation?"○":"×")+
+        " / 枠:"+(window.top===window.self?"直":"埋込")+
+        " / 許可:"+perm+
+        " / 要求:"+(asked?"済":"まだ")+
+        (asked?" / 経過:"+Math.round((Date.now()-t0)/1000)+"秒":"")+
+        " / エラー:"+(errCode==null?"—":errCode);
+    }
+  }
+  setInterval(function(){ if(!fix&&asked) paint(); },1000);
+
+  CLUBS.forEach(function(c){
+    var b=document.createElement("button");
+    b.type="button"; b.textContent=c; b.setAttribute("aria-pressed","false");
+    b.onclick=function(){ S.club=c; save(); paint(); };
+    $("clubs").appendChild(b);
+  });
+
+  $("hit").onclick=function(){
+    if(!fix){ startGeo(); return; }          // ★指で押したのを起点に要求する
+    if(!S.pending){
+      S.pending={lat:fix.lat,lon:fix.lon,acc:fix.acc,alt:fix.alt,t:fix.t,club:S.club};
+    }else{
+      var a=S.pending, g=geo(a,fix);
+      S.recs.push({
+        hole:S.hole, shot:S.shot, club:a.club,
+        teeLat:a.lat, teeLon:a.lon, teeAcc:a.acc, teeAlt:a.alt, teeT:a.t,
+        ballLat:fix.lat, ballLon:fix.lon, ballAcc:fix.acc, ballAlt:fix.alt, ballT:fix.t,
+        m:g.m, yd:g.yd, brg:g.brg
+      });
+      S.pending=null; S.shot++;
+    }
+    save(); paint();
+  };
+
+  $("undo").onclick=function(){
+    if(S.pending){ S.pending=null; }
+    else if(S.recs.length){ var r=S.recs.pop(); S.hole=r.hole; S.shot=r.shot; }
+    save(); paint();
+  };
+  $("skip").onclick=function(){ S.shot++; save(); paint(); };
+  $("holeUp").onclick=function(){ S.hole++; S.shot=1; S.pending=null; save(); paint(); };
+  $("holeDown").onclick=function(){ if(S.hole>1){ S.hole--; S.shot=1; S.pending=null; save(); paint(); } };
+
+  var HEAD=["player","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time",
+            "ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time",
+            "dist_m","dist_yd","bearing_deg"];
+  function q(v){
+    v=String(v==null?"":v);
+    return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+  }
+  function csv(){
+    var out=[HEAD.join(",")];
+    S.recs.forEach(function(r){
+      out.push([q(S.player),r.hole,r.shot,r.club,
+        r.teeLat.toFixed(7),r.teeLon.toFixed(7),r.teeAcc,r.teeAlt==null?"":r.teeAlt,r.teeT,
+        r.ballLat.toFixed(7),r.ballLon.toFixed(7),r.ballAcc,r.ballAlt==null?"":r.ballAlt,r.ballT,
+        r.m.toFixed(1),r.yd.toFixed(1),r.brg.toFixed(1)].join(","));
+    });
+    return out.join("\n");
+  }
+  var armed=false;
+  $("open").onclick=function(){
+    $("player").value=S.player;
+    $("csv").value=csv();
+    $("sheetCount").textContent=S.recs.length+"件。ここを全部コピーして、ノヴァに送って。";
+    armed=false; $("wipeNote").hidden=true; $("wipe").textContent="全部消す";
+    $("sheet").hidden=false;
+  };
+  $("player").oninput=function(){ S.player=this.value.trim(); save(); $("csv").value=csv(); };
+  $("close").onclick=function(){ $("sheet").hidden=true; };
+  $("copy").onclick=function(){
+    var t=$("csv"); t.focus(); t.select(); t.setSelectionRange(0,999999);
+    var done=function(){
+      $("copy").textContent="コピーした";
+      setTimeout(function(){ $("copy").textContent="全部コピー"; },1600);
+    };
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t.value).then(done,function(){
+        $("copy").textContent="長押しで選んでコピーして"; });
+    }else{
+      try{ document.execCommand("copy"); done(); }
+      catch(e){ $("copy").textContent="長押しで選んでコピーして"; }
+    }
+  };
+  $("wipe").onclick=function(){
+    if(!armed){ armed=true; $("wipeNote").hidden=false; $("wipe").textContent="ほんまに全部消す"; return; }
+    S={recs:[],hole:1,shot:1,club:S.club,pending:null,player:S.player};
+    save(); paint(); $("sheet").hidden=true;
+  };
+
+  /* ── 電波が無い所でも開けるようにする ── */
+  if("serviceWorker" in navigator){
+    window.addEventListener("load",function(){
+      navigator.serviceWorker.register("./sw.js").catch(function(){});
+    });
+  }
+
+  /* ── CSVをファイルに保存（自分の持ち物の上でだけ効く） ── */
+  $("dl").onclick=function(){
+    try{
+      var b=new Blob([String.fromCharCode(0xFEFF)+csv()],{type:"text/csv;charset=utf-8"});
+      var u=URL.createObjectURL(b), a=document.createElement("a");
+      a.href=u; a.download="aigolf_"+(S.player||"round")+".csv";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(u); },4000);
+      $("dl").textContent="保存した";
+      setTimeout(function(){ $("dl").textContent="ファイルに保存"; },1600);
+    }catch(e){ $("dl").textContent="保存でけへん。コピーで渡して"; }
+  };
+
+  load(); paint();
+})();
+</script>
+
+</body>
+</html>
