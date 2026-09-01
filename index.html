@@ -189,6 +189,19 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 .sheet .foot{display:grid; grid-template-columns:1fr 1fr; gap:8px}
 .danger{color:var(--bad); border-color:var(--bad)}
 
+.ask{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:12px 14px; box-shadow:var(--shadow); display:grid; gap:8px;
+}
+.ask[hidden]{display:none}
+.ask label{font-size:14px; color:var(--ink-mute)}
+.askrow{display:grid; grid-template-columns:1fr auto; gap:8px}
+.ask input{
+  min-height:52px; padding:0 14px; font-size:18px; font-family:inherit;
+  background:var(--ground); color:var(--ink);
+  border:1px solid var(--line); border-radius:12px;
+}
+.ask input:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
 .note{font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--ink-mute); text-align:center; line-height:1.55}
 .note b{color:var(--bad)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -228,6 +241,15 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   </main>
 
   <div class="last empty" id="last">まだ1本も記録しとらん</div>
+
+  <div class="ask" id="ask" hidden>
+    <label for="who">誰のぶんか、1回だけ教えて</label>
+    <div class="askrow">
+      <input id="who" type="text" placeholder="じぶん" maxlength="24" autocomplete="off"
+             enterkeyhint="done">
+      <button type="button" class="ghost" id="whoOk">決定</button>
+    </div>
+  </div>
   <p class="note" id="diag" hidden></p>
 </div>
 
@@ -263,6 +285,17 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   var t0=0;
   var perm="?";      // granted / prompt / denied
   var watchId=null;
+
+  /* ★端末ごとの合言葉。名前を入れ忘れても「別人のぶん」と分けられるように。
+     同じURLを配っても、貯まる場所は端末ごとに別やから、これで一意になる。 */
+  var DEV=(function(){
+    var k="aigolf.dev";
+    try{ var v=localStorage.getItem(k); if(v) return v; }catch(e){}
+    var A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", out="";
+    for(var i=0;i<6;i++) out+=A.charAt(Math.floor(Math.random()*A.length));
+    try{ localStorage.setItem(k,out); }catch(e){}
+    return out;
+  })();
 
   function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
   function load(){
@@ -367,6 +400,9 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     for(var i=0;i<cs.length;i++)
       cs[i].setAttribute("aria-pressed", cs[i].textContent===S.club?"true":"false");
 
+    /* 1本でも録れとって、まだ名前が空の時だけ聞く。打つ手は止めん */
+    $("ask").hidden = !(S.recs.length>0 && !S.player);
+
     var d=$("diag");                       // 取れとる時は出さん
     d.hidden=!!fix;
     if(!fix){
@@ -405,6 +441,12 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     save(); paint();
   };
 
+  function setWho(v){
+    S.player=String(v||"").trim(); save(); paint();
+  }
+  $("whoOk").onclick=function(){ setWho($("who").value); };
+  $("who").onkeydown=function(e){ if(e.key==="Enter"){ e.preventDefault(); setWho(this.value); } };
+
   $("undo").onclick=function(){
     if(S.pending){ S.pending=null; }
     else if(S.recs.length){ var r=S.recs.pop(); S.hole=r.hole; S.shot=r.shot; }
@@ -414,7 +456,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   $("holeUp").onclick=function(){ S.hole++; S.shot=1; S.pending=null; save(); paint(); };
   $("holeDown").onclick=function(){ if(S.hole>1){ S.hole--; S.shot=1; S.pending=null; save(); paint(); } };
 
-  var HEAD=["player","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time",
+  var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time",
             "ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time",
             "dist_m","dist_yd","bearing_deg"];
   function q(v){
@@ -424,7 +466,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   function csv(){
     var out=[HEAD.join(",")];
     S.recs.forEach(function(r){
-      out.push([q(S.player),r.hole,r.shot,r.club,
+      out.push([q(S.player),DEV,r.hole,r.shot,r.club,
         r.teeLat.toFixed(7),r.teeLon.toFixed(7),r.teeAcc,r.teeAlt==null?"":r.teeAlt,r.teeT,
         r.ballLat.toFixed(7),r.ballLon.toFixed(7),r.ballAcc,r.ballAlt==null?"":r.ballAlt,r.ballT,
         r.m.toFixed(1),r.yd.toFixed(1),r.brg.toFixed(1)].join(","));
@@ -435,7 +477,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   $("open").onclick=function(){
     $("player").value=S.player;
     $("csv").value=csv();
-    $("sheetCount").textContent=S.recs.length+"件。ここを全部コピーして、ノヴァに送って。";
+    $("sheetCount").textContent=S.recs.length+"件（この端末の合言葉 "+DEV+"）。全部コピーして送って。";
     armed=false; $("wipeNote").hidden=true; $("wipe").textContent="全部消す";
     $("sheet").hidden=false;
   };
