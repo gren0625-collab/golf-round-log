@@ -1,6 +1,7 @@
 /* 一回開いたら、電波が無うても動くようにする。 */
-var C = "aigolf-round-log-v2";
-var CORE = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-512.png"];
+var C = "aigolf-round-log-v3";
+var CORE = ["./", "./index.html", "./range.html",
+            "./manifest.webmanifest", "./icon-180.png", "./icon-512.png"];
 
 self.addEventListener("install", function(e){
   e.waitUntil(caches.open(C).then(function(c){ return c.addAll(CORE); })

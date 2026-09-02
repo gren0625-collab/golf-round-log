@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#19613F">
+<meta name="description" content="ゴルフのラウンド中に、打った場所と球のあった場所をGPSで記録する1枚のページ。">
+<title>AIGolf 打感ノート</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="落下点ノート">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+</head>
+<body>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   AIGolf 打感ノート（打ちっぱなし用）
+   ★1発1タップ。打球音の時刻は音から自動で取れとるから、
+     このページは「ラベル」だけ供給すればええ＝±3秒ずれても合う。
+   色は状態やのうて意味： ターフ緑=芯を食うた / それ以外=素の面
+   落下点ノートと同じ色・同じ書体（同じ道具の仲間やと分かるように）
+   ───────────────────────────────────────────────────────────── */
+:root{
+  --ground:#E8ECE3;  --surface:#F8FAF5;  --surface-2:#DCE3D5;
+  --ink:#131B16;     --ink-mute:#586A5D; --line:#C4CEBD;
+  --tee:#19613F;     --tee-ink:#FFFFFF;
+  --ball:#A75E15;    --ball-ink:#FFFFFF;
+  --shadow:0 1px 0 rgba(19,27,22,.10), 0 6px 18px rgba(19,27,22,.07);
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0D1411;  --surface:#161F1A;  --surface-2:#1F2B24;
+    --ink:#E6EDE5;     --ink-mute:#93A398; --line:#2B382F;
+    --tee:#2E9463;     --tee-ink:#04150C;
+    --ball:#DA8B2C;    --ball-ink:#201302;
+    --shadow:0 1px 0 rgba(0,0,0,.5), 0 8px 22px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0D1411;  --surface:#161F1A;  --surface-2:#1F2B24;
+  --ink:#E6EDE5;     --ink-mute:#93A398; --line:#2B382F;
+  --tee:#2E9463;     --tee-ink:#04150C;
+  --ball:#DA8B2C;    --ball-ink:#201302;
+  --shadow:0 1px 0 rgba(0,0,0,.5), 0 8px 22px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Hiragino Kaku Gothic ProN","Hiragino Sans","Yu Gothic",
+              "Noto Sans JP",system-ui,-apple-system,sans-serif;
+  font-size:17px; line-height:1.5;
+  -webkit-text-size-adjust:100%; -webkit-tap-highlight-color:transparent;
+}
+.num{font-family:"Barlow Condensed","Roboto Condensed",system-ui,sans-serif;
+     font-variant-numeric:tabular-nums; font-weight:700}
+
+.app{
+  min-height:100dvh; max-width:520px; margin:0 auto;
+  display:grid; grid-template-rows:auto auto 1fr auto auto;
+  gap:10px; padding:12px 14px calc(14px + env(safe-area-inset-bottom));
+}
+
+.bar{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:10px 14px; box-shadow:var(--shadow);
+}
+.bar .t{font-size:15px; color:var(--ink-mute); min-width:0;
+        overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.bar .t b{color:var(--ink); font-weight:600}
+.bar .c{font-size:14px; color:var(--ink-mute); white-space:nowrap}
+.bar .c .num{font-size:23px; color:var(--ink); margin-right:2px}
+
+.clubs{
+  display:flex; gap:6px; overflow-x:auto; align-items:center;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:6px; box-shadow:var(--shadow);
+  scrollbar-width:none;
+}
+.clubs::-webkit-scrollbar{display:none}
+.clubs button{
+  flex:none; min-width:54px; height:50px; padding:0 10px;
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+  border-radius:10px; font-size:18px; font-weight:600; cursor:pointer;
+  font-family:"Barlow Condensed",system-ui,sans-serif; letter-spacing:.02em;
+}
+.clubs button[aria-pressed="true"]{background:var(--ink); color:var(--surface); border-color:var(--ink)}
+
+/* ── 主役：打感の6つ ─────────────────────────────── */
+.grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; min-height:0}
+.grid button{
+  border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  border-radius:16px; min-height:84px; cursor:pointer;
+  font-size:27px; font-weight:700; letter-spacing:.04em;
+  box-shadow:var(--shadow);
+  transition:transform .07s ease, filter .1s ease;
+}
+.grid button:active{transform:scale(.97); filter:brightness(1.05)}
+.grid button:focus-visible{outline:4px solid var(--ink); outline-offset:3px}
+/* 芯だけ色を持つ＝「捕まえた」の1つだけが意味を持つから */
+.grid button.core{background:var(--tee); color:var(--tee-ink); border-color:var(--tee)}
+
+/* ── おまけ：球筋（直前の1発に後から足す。押さんでもええ） ── */
+.flight{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+  background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r); padding:8px; box-shadow:var(--shadow);
+}
+.flight button{
+  min-height:50px; border:1px solid var(--line); background:var(--surface-2);
+  color:var(--ink); border-radius:10px; font-size:16px; cursor:pointer;
+}
+.flight button:active{filter:brightness(1.08)}
+.flight button[aria-pressed="true"]{background:var(--ball); color:var(--ball-ink); border-color:var(--ball)}
+.flight[hidden]{display:none}
+
+.row{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+.ghost{
+  border:1px solid var(--line); background:var(--surface); color:var(--ink);
+  border-radius:12px; min-height:52px; padding:0 12px; font-size:16px;
+  cursor:pointer; box-shadow:var(--shadow);
+}
+.ghost:active{background:var(--surface-2)}
+.ghost:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
+.ghost[disabled]{opacity:.42; cursor:default}
+
+.sheet{
+  position:fixed; inset:0; background:var(--ground); z-index:10;
+  display:grid; grid-template-rows:auto 1fr auto; gap:12px;
+  padding:14px calc(14px + env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom));
+  max-width:520px; margin:0 auto;
+}
+.sheet[hidden]{display:none}
+.sheet .who{display:grid; gap:6px}
+.sheet h2{margin:0; font-size:20px}
+.sheet label{font-size:13px; color:var(--ink-mute)}
+.sheet input{
+  width:100%; min-height:52px; padding:0 14px; font-size:18px; font-family:inherit;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:12px;
+}
+.sheet input:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
+.sheet p{margin:0; font-size:14px; color:var(--ink-mute)}
+.sheet textarea{
+  width:100%; height:100%; resize:none;
+  background:var(--surface); color:var(--ink);
+  border:1px solid var(--line); border-radius:var(--r); padding:12px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:12px; line-height:1.55; white-space:pre; overflow:auto;
+}
+.sheet .foot{display:grid; grid-template-columns:1fr 1fr; gap:8px}
+.danger{color:#A63C33; border-color:#A63C33}
+:root[data-theme="dark"] .danger, :root:not([data-theme="light"]) .danger{color:#D96C5F; border-color:#D96C5F}
+
+.note{font-size:13px; color:var(--ink-mute); text-align:center}
+.note a{color:var(--ink-mute)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="app">
+
+  <div class="bar">
+    <div class="t" id="lastT">まだ1発も押しとらん</div>
+    <div class="c"><span class="num" id="n">0</span>発</div>
+  </div>
+
+  <div class="clubs" id="clubs" role="group" aria-label="番手"></div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="flight" id="flight" hidden role="group" aria-label="直前の球筋"></div>
+
+  <div>
+    <div class="row">
+      <button type="button" class="ghost" id="undo" disabled>取消</button>
+      <button type="button" class="ghost" id="mark">合図</button>
+      <button type="button" class="ghost" id="open">書き出す</button>
+    </div>
+    <p class="note" style="margin:10px 0 0">
+      打った後3秒以内に1つ押すだけ。時刻は音から合わせる<br>
+      <a href="./">→ ラウンド用の落下点ノート</a>
+    </p>
+  </div>
+</div>
+
+<section class="sheet" id="sheet" hidden aria-label="書き出し">
+  <div class="who">
+    <h2>今日のぶんを書き出す</h2>
+    <label for="player">誰のぶんか（混ぜんための名前）</label>
+    <input id="player" type="text" autocomplete="off" placeholder="じぶん" maxlength="24">
+    <p id="cnt">0件</p>
+  </div>
+  <textarea id="csv" readonly spellcheck="false"></textarea>
+  <div class="foot">
+    <button type="button" class="ghost" id="copy">全部コピー</button>
+    <button type="button" class="ghost" id="dl">ファイルに保存</button>
+    <button type="button" class="ghost" id="close" style="grid-column:1/-1">戻る</button>
+    <button type="button" class="ghost danger" id="wipe" style="grid-column:1/-1">全部消す</button>
+  </div>
+  <p class="note" id="wipeNote" hidden>もう一回押したらほんまに消える。コピーは済んどるか？</p>
+</section>
+
+<script>
+(function(){
+  "use strict";
+  var KEY="aigolf.rangelog.v1";
+  var CLUBS=["D","3W","5W","U","4I","5I","6I","7I","8I","9I","PW","AW","SW"];
+  var STRIKE=["芯","トップ","ダフリ","チョロ","天ぷら","その他"];
+  var FLIGHT=["まっすぐ","スライス","フック"];
+
+  var S={recs:[],club:"7I",player:""};
+
+  /* 端末ごとの合言葉。落下点ノートと同じ物を使い回す＝同じ人と分かる */
+  var DEV=(function(){
+    var k="aigolf.dev";
+    try{ var v=localStorage.getItem(k); if(v) return v; }catch(e){}
+    var A="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", o="";
+    for(var i=0;i<6;i++) o+=A.charAt(Math.floor(Math.random()*A.length));
+    try{ localStorage.setItem(k,o); }catch(e){}
+    return o;
+  })();
+
+  function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
+  function load(){
+    try{
+      var v=localStorage.getItem(KEY); if(!v) return;
+      var o=JSON.parse(v);
+      if(o&&Array.isArray(o.recs)){ S.recs=o.recs; S.club=o.club||"7I"; S.player=o.player||""; }
+    }catch(e){}
+  }
+  var $=function(id){ return document.getElementById(id); };
+
+  function hhmmss(iso){
+    var d=new Date(iso);
+    function p(v){ return (v<10?"0":"")+v; }
+    return p(d.getHours())+":"+p(d.getMinutes())+":"+p(d.getSeconds());
+  }
+
+  function paint(){
+    $("n").textContent=S.recs.length;
+    var r=S.recs[S.recs.length-1];
+    $("lastT").innerHTML = r
+      ? ("直前 "+hhmmss(r.t)+"　<b>"+r.strike+"</b>　"+r.club+(r.flight?"　"+r.flight:""))
+      : "まだ1発も押しとらん";
+    $("undo").disabled=!S.recs.length;
+    $("flight").hidden=!(r&&r.strike!=="合図");
+    var fb=$("flight").children;
+    for(var i=0;i<fb.length;i++)
+      fb[i].setAttribute("aria-pressed", (r&&r.flight===fb[i].textContent)?"true":"false");
+    var cb=$("clubs").children;
+    for(var j=0;j<cb.length;j++)
+      cb[j].setAttribute("aria-pressed", cb[j].textContent===S.club?"true":"false");
+  }
+
+  CLUBS.forEach(function(c){
+    var b=document.createElement("button");
+    b.type="button"; b.textContent=c; b.setAttribute("aria-pressed","false");
+    b.onclick=function(){ S.club=c; save(); paint(); };
+    $("clubs").appendChild(b);
+  });
+
+  STRIKE.forEach(function(k){
+    var b=document.createElement("button");
+    b.type="button"; b.textContent=k;
+    if(k==="芯") b.className="core";
+    b.onclick=function(){
+      S.recs.push({t:new Date().toISOString(), club:S.club, strike:k, flight:""});
+      save(); paint();
+    };
+    $("grid").appendChild(b);
+  });
+
+  FLIGHT.forEach(function(k){
+    var b=document.createElement("button");
+    b.type="button"; b.textContent=k; b.setAttribute("aria-pressed","false");
+    b.onclick=function(){                       // 直前の1発に後から足す（押さんでもええ）
+      var r=S.recs[S.recs.length-1];
+      if(!r) return;
+      r.flight = (r.flight===k) ? "" : k;
+      save(); paint();
+    };
+    $("flight").appendChild(b);
+  });
+
+  $("undo").onclick=function(){ S.recs.pop(); save(); paint(); };
+
+  /* ★合図＝手を2回叩いた瞬間に押す。音とこの表を合わせる時の錨になる。
+     押さんでも250発ぶんのタップの並びで合わせられるが、これがあると一発で決まる */
+  $("mark").onclick=function(){
+    S.recs.push({t:new Date().toISOString(), club:S.club, strike:"合図", flight:""});
+    save(); paint();
+    $("mark").textContent="手を2回パン";
+    setTimeout(function(){ $("mark").textContent="合図"; },2000);
+  };
+
+  var HEAD=["player","device","n","time","club","strike","flight"];
+  function q(v){
+    v=String(v==null?"":v);
+    return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+  }
+  function csv(){
+    var out=[HEAD.join(",")];
+    S.recs.forEach(function(r,i){
+      out.push([q(S.player),DEV,i+1,r.t,r.club,r.strike,r.flight].join(","));
+    });
+    return out.join("\n");
+  }
+
+  var armed=false;
+  $("open").onclick=function(){
+    $("player").value=S.player;
+    $("csv").value=csv();
+    $("cnt").textContent=S.recs.length+"件（この端末の合言葉 "+DEV+"）。全部コピーして送って。";
+    armed=false; $("wipeNote").hidden=true; $("wipe").textContent="全部消す";
+    $("sheet").hidden=false;
+  };
+  $("player").oninput=function(){ S.player=this.value.trim(); save(); $("csv").value=csv(); };
+  $("close").onclick=function(){ $("sheet").hidden=true; };
+  $("copy").onclick=function(){
+    var t=$("csv"); t.focus(); t.select(); t.setSelectionRange(0,999999);
+    var done=function(){
+      $("copy").textContent="コピーした";
+      setTimeout(function(){ $("copy").textContent="全部コピー"; },1600);
+    };
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t.value).then(done,function(){
+        $("copy").textContent="長押しで選んでコピーして"; });
+    }else{
+      try{ document.execCommand("copy"); done(); }
+      catch(e){ $("copy").textContent="長押しで選んでコピーして"; }
+    }
+  };
+  $("wipe").onclick=function(){
+    if(!armed){ armed=true; $("wipeNote").hidden=false; $("wipe").textContent="ほんまに全部消す"; return; }
+    S={recs:[],club:S.club,player:S.player}; save(); paint(); $("sheet").hidden=true;
+  };
+
+  /* ── 電波が無い所でも開けるようにする ── */
+  if("serviceWorker" in navigator){
+    window.addEventListener("load",function(){
+      navigator.serviceWorker.register("./sw.js").catch(function(){});
+    });
+  }
+
+  /* ── CSVをファイルに保存（自分の持ち物の上でだけ効く） ── */
+  $("dl").onclick=function(){
+    try{
+      var b=new Blob([String.fromCharCode(0xFEFF)+csv()],{type:"text/csv;charset=utf-8"});
+      var u=URL.createObjectURL(b), a=document.createElement("a");
+      a.href=u; a.download="aigolf_range_"+(S.player||"session")+".csv";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(u); },4000);
+      $("dl").textContent="保存した";
+      setTimeout(function(){ $("dl").textContent="ファイルに保存"; },1600);
+    }catch(e){ $("dl").textContent="保存でけへん。コピーで渡して"; }
+  };
+
+  load(); paint();
+})();
+</script>
+
+</body>
+</html>
