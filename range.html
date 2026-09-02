@@ -112,6 +112,10 @@ body{
   background:var(--surface); border:1px solid var(--line);
   border-radius:var(--r); padding:8px; box-shadow:var(--shadow);
 }
+.flight .flabel{
+  grid-column:1/-1; font-size:13px; color:var(--ink-mute); padding:2px 4px 0;
+}
+.flight .flabel b{color:var(--ink); font-weight:600}
 .flight button{
   min-height:50px; border:1px solid var(--line); background:var(--surface-2);
   color:var(--ink); border-radius:10px; font-size:16px; cursor:pointer;
@@ -160,6 +164,7 @@ body{
 
 .note{font-size:13px; color:var(--ink-mute); text-align:center}
 .note a{color:var(--ink-mute)}
+.note b{color:var(--ink); font-weight:600}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -174,7 +179,9 @@ body{
 
   <div class="grid" id="grid"></div>
 
-  <div class="flight" id="flight" hidden role="group" aria-label="直前の球筋"></div>
+  <div class="flight" id="flight" hidden role="group" aria-label="直前の球筋">
+    <div class="flabel">直前の球筋 ── 押せたら押す。<b>まっすぐも含めて</b></div>
+  </div>
 
   <div>
     <div class="row">
@@ -183,7 +190,8 @@ body{
       <button type="button" class="ghost" id="open">書き出す</button>
     </div>
     <p class="note" style="margin:10px 0 0">
-      打った後3秒以内に1つ押すだけ。時刻は音から合わせる<br>
+      打った後、<b>打感を1つ</b>押す。余裕があれば<b>球筋も</b>。<br>
+      時刻は音から合わせるから、数秒ずれてもええ<br>
       <a href="./">→ ラウンド用の落下点ノート</a>
     </p>
   </div>
@@ -250,7 +258,7 @@ body{
       : "まだ1発も押しとらん";
     $("undo").disabled=!S.recs.length;
     $("flight").hidden=!(r&&r.strike!=="合図");
-    var fb=$("flight").children;
+    var fb=$("flight").querySelectorAll("button");   // ★見出しを含めんように button だけ
     for(var i=0;i<fb.length;i++)
       fb[i].setAttribute("aria-pressed", (r&&r.flight===fb[i].textContent)?"true":"false");
     var cb=$("clubs").children;
