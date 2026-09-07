@@ -1,5 +1,5 @@
 /* 一回開いたら、電波が無うても動くようにする。 */
-var C = "aigolf-round-log-v4";
+var C = "aigolf-round-log-v5";
 var CORE = ["./", "./index.html", "./range.html",
             "./manifest.webmanifest", "./icon-180.png", "./icon-512.png"];
 

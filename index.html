@@ -138,6 +138,10 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 .hit .sub{font-size:14px; opacity:.8}
 
 .row{display:grid; grid-template-columns:1fr auto auto; gap:8px}
+/* ★球が見つからんかった時。打った場所だけ残して、距離は残さん。
+   球の所で押す代わりに押す物やから、大きいボタンのすぐ下に置く */
+.ob{width:100%; margin-bottom:10px; color:var(--bad); border-color:var(--bad)}
+.ob[hidden]{display:none}
 .ghost{
   border:1px solid var(--line); background:var(--surface); color:var(--ink);
   border-radius:12px; min-height:52px; padding:0 16px; font-size:16px;
@@ -233,6 +237,8 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
       <span class="sub" id="hitSub">空が見える所で数秒待って</span>
     </button>
 
+    <button type="button" class="ghost ob" id="ob" hidden>OB・ロスト</button>
+
     <div class="row">
       <button type="button" class="ghost" id="undo" disabled>直前を取り消す</button>
       <button type="button" class="ghost" id="skip">素振り扱い</button>
@@ -285,6 +291,29 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   var t0=0;
   var perm="?";      // granted / prompt / denied
   var watchId=null;
+  var nudgeMsg="", nudgeTill=0;   // 一瞬だけ出す注意書き
+
+  /* ── 測位の見張り ────────────────────────────────────
+     ★2026-09-07に実際に1ラウンド回した記録2本（71行と43行）を突き合わせて決めた線引き。
+       ・STALE_S … watchPosition は黙る事がある。古い点のまま押すと同じ座標が
+         2ショットに入って両方壊れる（一方の回で142個入るはずの測位が126個しか無く、
+         16回も使い回されとった。H6-1 は打った所と球の所が同じ点で「0m」が残った）
+       ・ACC_WARN … ±20mを超える点は、衛星やのうて別の測位に落ちとる疑い。
+         同じ回で ±1414m や ±1247m が繰り返し出て、そのゴミが
+         次のショットのティーにも入って2ショット分を壊した
+     ★止めはせん。警告して、押したら記録は残す。取りこぼす方が怖いから。
+       代わりに何秒古い点やったかを tee_stale_s / ball_stale_s に残して、
+       後から捨てるか使うかを決められるようにする。                        */
+  var STALE_S=15, ACC_WARN=20;
+  function staleSec(){ return fix ? Math.floor((Date.now()-fix.recv)/1000) : null; }
+  function fixBad(){
+    if(!fix) return null;
+    var s=staleSec();
+    if(s>=STALE_S) return "測位が"+s+"秒前のまま";
+    if(fix.acc!=null&&fix.acc>ACC_WARN) return "測位が粗い（±"+fix.acc+"m）";
+    return null;
+  }
+  function nudge(msg){ nudgeMsg=msg; nudgeTill=Date.now()+4000; paint(); }
 
   /* ★端末ごとの合言葉。名前を入れ忘れても「別人のぶん」と分けられるように。
      同じURLを配っても、貯まる場所は端末ごとに別やから、これで一意になる。 */
@@ -332,7 +361,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     fix={lat:p.coords.latitude, lon:p.coords.longitude,
          acc:p.coords.accuracy==null?null:Math.round(p.coords.accuracy),
          alt:p.coords.altitude==null?null:Math.round(p.coords.altitude*10)/10,
-         t:new Date(p.timestamp).toISOString()};
+         t:new Date(p.timestamp).toISOString(), recv:Date.now()};
     paint();
   }
   function failed(e){
@@ -364,9 +393,10 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 
   function paint(){
     var acc=fix&&fix.acc!=null?fix.acc:null;
-    $("dot").className="dot"+(geoErr?" bad":acc==null?"":acc<=8?" ok":acc<=20?" warn":" bad");
+    var bad=fixBad();
+    $("dot").className="dot"+(geoErr?" bad":acc==null?"":bad?" bad":acc<=8?" ok":" warn");
     $("fixText").innerHTML = fix
-      ? ("測位 <b>±"+(acc==null?"?":acc)+"m</b>"+(acc>20?"　空の見える所へ":""))
+      ? ("測位 <b>±"+(acc==null?"?":acc)+"m</b>"+(bad?"　<b>"+bad+"</b>":""))
       : geoErr ? geoErr : asked ? "許可と測位を待っとる…" : "まだ測位しとらん";
 
     $("nRec").textContent=S.recs.length;
@@ -381,14 +411,25 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
       : S.pending ? "球はここやった" : "ここで打った";
     $("hitSub").textContent = !fix
       ? (asked ? "聞かれたら「Webサイトの使用中は許可」を押して" : "押したら iPhone が許可を聞いてくる")
+      : Date.now()<nudgeTill ? nudgeMsg
+      : bad ? bad+"。数秒待ってから押して（押しても記録はする）"
       : S.pending ? "球のとこまで歩いて、球の横で押す" : "打つ前に、打つ場所で押す";
 
     $("undo").disabled=!(S.pending||S.recs.length);
     $("undo").textContent=S.pending?"打った所を取り消す":"直前の1本を消す";
     $("skip").disabled=(!!S.pending)||(!fix);
+    /* ★OBは「打った」の後にしか要らん。押す物が無い時は出さん */
+    $("ob").hidden=!S.pending;
 
     var L=$("last"), r=S.recs[S.recs.length-1];
     if(!r){ L.className="last empty"; L.textContent="まだ1本も記録しとらん"; }
+    else if(r.penalty){
+      L.className="last";
+      L.innerHTML='<div class="yd"><span class="num">OB</span></div>'+
+        '<div class="meta"><b>'+r.club+'</b>　球は見つからず<br>'+
+        'HOLE '+r.hole+' ・ '+r.shot+'打目　打った場所だけ残した</div>'+
+        '<div class="meta" style="text-align:right">—</div>';
+    }
     else{
       L.className="last";
       L.innerHTML='<div class="yd"><span class="num">'+Math.round(r.yd)+'</span><span>yd</span></div>'+
@@ -400,8 +441,10 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     for(var i=0;i<cs.length;i++)
       cs[i].setAttribute("aria-pressed", cs[i].textContent===S.club?"true":"false");
 
-    /* 1本でも録れとって、まだ名前が空の時だけ聞く。打つ手は止めん */
-    $("ask").hidden = !(S.recs.length>0 && !S.player);
+    /* ★名前が空なら最初から聞く。打つ手は止めん（別枠やから無視して押せる）。
+       2026-09-07 に43行が丸ごと player 空で来て、ファイル名でしか
+       誰のぶんか分からんかった。あとから混ぜんための列やのに効いてなかった */
+    $("ask").hidden = !!S.player;
 
     var d=$("diag");                       // 取れとる時は出さん
     d.hidden=!!fix;
@@ -415,7 +458,8 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
         " / エラー:"+(errCode==null?"—":errCode);
     }
   }
-  setInterval(function(){ if(!fix&&asked) paint(); },1000);
+  /* ★測位が取れた後も回す。鮮度は時間で悪くなるから、押す前に画面で分かる必要がある */
+  setInterval(function(){ if(asked) paint(); },2000);
 
   CLUBS.forEach(function(c){
     var b=document.createElement("button");
@@ -427,17 +471,41 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   $("hit").onclick=function(){
     if(!fix){ startGeo(); return; }          // ★指で押したのを起点に要求する
     if(!S.pending){
-      S.pending={lat:fix.lat,lon:fix.lon,acc:fix.acc,alt:fix.alt,t:fix.t,club:S.club};
+      S.pending={lat:fix.lat,lon:fix.lon,acc:fix.acc,alt:fix.alt,t:fix.t,
+                 stale:staleSec(),club:S.club};
     }else{
-      var a=S.pending, g=geo(a,fix);
+      var a=S.pending;
+      /* ★同じ測位で2回押させん。watchPosition が黙っとる間に押すと、打った所と
+         球の所が全く同じ点になる（2026-09-07 H6-1 で「Dで0.0m」が実際に残った）。
+         数秒待てば watchPosition が動くから、ここは止めてええ */
+      if(a.t===fix.t){ nudge("測位がまだ動いとらん。数秒待ってもう一回押して"); return; }
+      var g=geo(a,fix);
       S.recs.push({
         hole:S.hole, shot:S.shot, club:a.club,
-        teeLat:a.lat, teeLon:a.lon, teeAcc:a.acc, teeAlt:a.alt, teeT:a.t,
+        teeLat:a.lat, teeLon:a.lon, teeAcc:a.acc, teeAlt:a.alt, teeT:a.t, teeStale:a.stale,
         ballLat:fix.lat, ballLon:fix.lon, ballAcc:fix.acc, ballAlt:fix.alt, ballT:fix.t,
+        ballStale:staleSec(),
         m:g.m, yd:g.yd, brg:g.brg
       });
       S.pending=null; S.shot++;
     }
+    save(); paint();
+  };
+
+  /* ★OB・ロスト。打った場所だけ残して、球の座標も距離も空にする。
+     2026-09-07 の記録で、OBのあと特設ティーまで歩いて「球はここやった」を
+     押した結果、ワープ分が飛距離として残った（H13-1で346m＝378yd）。
+     ⚠罰打は数えん。この道具はスコアカードやない。「その番手でOBが出た」が残ればええ */
+  $("ob").onclick=function(){
+    if(!S.pending) return;
+    var a=S.pending;
+    S.recs.push({
+      hole:S.hole, shot:S.shot, club:a.club,
+      teeLat:a.lat, teeLon:a.lon, teeAcc:a.acc, teeAlt:a.alt, teeT:a.t, teeStale:a.stale,
+      ballLat:null, ballLon:null, ballAcc:null, ballAlt:null, ballT:null, ballStale:null,
+      m:null, yd:null, brg:null, penalty:"OB"
+    });
+    S.pending=null; S.shot++;
     save(); paint();
   };
 
@@ -453,12 +521,23 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     save(); paint();
   };
   $("skip").onclick=function(){ S.shot++; save(); paint(); };
-  $("holeUp").onclick=function(){ S.hole++; S.shot=1; S.pending=null; save(); paint(); };
-  $("holeDown").onclick=function(){ if(S.hole>1){ S.hole--; S.shot=1; S.pending=null; save(); paint(); } };
+  /* ★ホールを跨いだらパターを持ち越さん。2026-09-07 に「PTで174.8m」と
+     「PTで74.6m」が2人分の記録に残った。ホールを進めても S.club だけ
+     戻してなかったのが直因。パター以外は同じ番手で刻む事があるからそのまま置いとく */
+  function goHole(d){
+    var h=S.hole+d; if(h<1) return;
+    S.hole=h; S.shot=1; S.pending=null;
+    if(S.club==="PT") S.club="D";
+    save(); paint();
+  }
+  $("holeUp").onclick=function(){ goHole(1); };
+  $("holeDown").onclick=function(){ goHole(-1); };
 
+  /* ★stale の2列は末尾に足す（列名で読む分にも、位置で読む分にも既存CSVを壊さん）。
+     押した時の測位が何秒前の点やったか。空欄＝この列が無かった頃の記録 */
   var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time",
             "ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time",
-            "dist_m","dist_yd","bearing_deg"];
+            "dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty"];
   function q(v){
     v=String(v==null?"":v);
     return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
@@ -468,8 +547,11 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     S.recs.forEach(function(r){
       out.push([q(S.player),DEV,r.hole,r.shot,r.club,
         r.teeLat.toFixed(7),r.teeLon.toFixed(7),r.teeAcc,r.teeAlt==null?"":r.teeAlt,r.teeT,
-        r.ballLat.toFixed(7),r.ballLon.toFixed(7),r.ballAcc,r.ballAlt==null?"":r.ballAlt,r.ballT,
-        r.m.toFixed(1),r.yd.toFixed(1),r.brg.toFixed(1)].join(","));
+        r.ballLat==null?"":r.ballLat.toFixed(7), r.ballLon==null?"":r.ballLon.toFixed(7),
+        r.ballAcc==null?"":r.ballAcc, r.ballAlt==null?"":r.ballAlt, r.ballT==null?"":r.ballT,
+        r.m==null?"":r.m.toFixed(1), r.yd==null?"":r.yd.toFixed(1), r.brg==null?"":r.brg.toFixed(1),
+        r.teeStale==null?"":r.teeStale, r.ballStale==null?"":r.ballStale,
+        r.penalty||""].join(","));
     });
     return out.join("\n");
   }
