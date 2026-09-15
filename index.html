@@ -19,7 +19,7 @@
 <style>
 /* ─────────────────────────────────────────────────────────────
    AIGolf 落下点ノート
-   日向で・片手で・歩きながら叩く道具。読み物やない。
+   日向で・片手で・歩きながら操作する道具。読み物ではない。
    色は飾りやのうて状態そのもの： ターフ緑=打った / 黄土=球のとこ
    日本語は端末の書体（電波が無い所で崩れんため）。数字だけ Barlow Condensed。
    ───────────────────────────────────────────────────────────── */
@@ -83,6 +83,17 @@ body{
 .fix-t b{color:var(--ink); font-weight:600}
 .count{font-size:14px; color:var(--ink-mute); white-space:nowrap}
 .count .num{font-size:21px; color:var(--ink); margin-right:2px}
+
+/* ── ★グリーンまで（2026-09-15） ─────────────────────── */
+.green{
+  display:flex; align-items:baseline; gap:8px; justify-content:center;
+  padding:6px 10px 2px; font-variant-numeric:tabular-nums;
+}
+.green .gy{font-size:34px; font-weight:700; letter-spacing:-.02em}
+.green .gu{font-size:13px; color:var(--ink-mute); margin-left:-4px}
+.green .gd{font-size:13px; color:var(--ink-mute); margin-left:6px}
+.green .gp{font-size:13px; color:var(--ink-mute); margin-left:auto}
+.green.stale .gy{opacity:.35}
 
 /* ── ホールと番手 ─────────────────────────────────── */
 /* ── ラウンドの頭で1回だけ（コース名・地面） ───────────── */
@@ -230,6 +241,38 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 .ask input:focus-visible{outline:3px solid var(--ink); outline-offset:2px}
 .note{font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; color:var(--ink-mute); text-align:center; line-height:1.55}
 .note b{color:var(--bad)}
+.actions{display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px}
+.summary,.penalty-edit{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:12px 14px; box-shadow:var(--shadow); font-size:15px;
+}
+.summary[hidden],.penalty-edit[hidden]{display:none}
+.storage-alert{
+  background:var(--surface); border:2px solid var(--bad); border-radius:var(--r);
+  padding:10px 14px; color:var(--bad); font-size:14px; box-shadow:var(--shadow);
+}
+.storage-alert[hidden]{display:none}
+.recovery-actions{
+  background:var(--surface); border:2px solid var(--bad); border-top:0;
+  border-radius:0 0 var(--r) var(--r); padding:10px 14px;
+  display:grid; grid-template-columns:1fr 1fr; gap:8px;
+}
+.recovery-actions[hidden]{display:none}
+.penalty-edit{display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center}
+.penalty-edit select{
+  min-height:44px; padding:0 10px; border:1px solid var(--line); border-radius:10px;
+  background:var(--surface); color:var(--ink); font:inherit;
+}
+.intro{
+  position:fixed; inset:0; z-index:20; display:grid; place-items:center;
+  padding:24px; background:var(--ground);
+}
+.intro[hidden]{display:none}
+.intro-card{max-width:420px; display:grid; gap:18px; text-align:center;
+  background:var(--surface); border:1px solid var(--line); border-radius:20px;
+  padding:28px 22px; box-shadow:var(--shadow)}
+.intro-card h1,.intro-card p{margin:0}
+.intro-card p{font-size:19px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
@@ -238,16 +281,23 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   <div class="bar">
     <div class="fix">
       <span class="dot" id="dot"></span>
-      <span class="fix-t" id="fixText">測位を始めとる…</span>
+      <span class="fix-t" id="fixText">測位を開始しています…</span>
     </div>
     <div class="count"><span class="num" id="nRec">0</span>件</div>
+  </div>
+
+  <div class="storage-alert" id="storageAlert" hidden></div>
+  <div class="recovery-actions" id="recoveryActions" hidden>
+    <button type="button" class="ghost" id="pendingCancel" hidden>確定待ちを取り消す</button>
+    <button type="button" class="ghost" id="pendingContinue" hidden>そのまま続ける</button>
+    <button type="button" class="ghost danger" id="brokenStart" hidden>新しく始める</button>
   </div>
 
   <!-- ★ラウンドの頭で1回だけ触る所（§12 運用フロー）。
        地面の一言でサークルが 32→20yd に縮む＝**一番安い改善**（§3.2） -->
   <div class="round" id="roundbar">
     <input id="course" type="text" inputmode="text" autocomplete="off"
-           placeholder="コース名を入れる" maxlength="40">
+           placeholder="コース名を入力してください" maxlength="40">
     <div class="ground" id="ground" role="group" aria-label="今日の地面"></div>
   </div>
 
@@ -260,28 +310,49 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     <div class="clubs" id="clubs" role="group" aria-label="番手"></div>
   </div>
 
+  <!-- ★グリーンまで（コースのデータが有る時だけ出る） -->
+  <div class="green" id="greenBox" hidden>
+    <span class="gy" id="gYd">—</span><span class="gu">yd</span>
+    <span class="gd" id="gDeg">—</span>
+    <span class="gp" id="gPar"></span>
+  </div>
+
   <main>
     <button type="button" class="hit" id="hit" data-state="tee" disabled>
       <span class="lead" id="hitLead">HOLE 1 ・ 1打目</span>
-      <span class="big" id="hitBig">測位を待っとる</span>
-      <span class="sub" id="hitSub">空が見える所で数秒待って</span>
+      <span class="big" id="hitBig">測位を待っています</span>
+      <span class="sub" id="hitSub">空が見える場所で数秒お待ちください</span>
     </button>
 
-    <button type="button" class="ghost ob" id="ob" hidden>OB・ロスト</button>
+    <div class="actions">
+      <button type="button" class="ghost ob" id="ob" hidden>OBとして記録</button>
+      <button type="button" class="ghost ob" id="lost" hidden>ロストとして記録</button>
+      <button type="button" class="ghost" id="special" hidden>特設ティーへ移動</button>
+    </div>
+
+    <button type="button" class="ghost" id="holeOut" disabled>ホールアウト</button>
+
+    <div class="penalty-edit" id="penaltyEdit" hidden>
+      <label for="penaltyStrokes">直前の罰打</label>
+      <select id="penaltyStrokes" aria-label="直前の罰打">
+        <option value="0">0打</option><option value="1">1打</option><option value="2">2打</option>
+      </select>
+    </div>
+
+    <div class="summary" id="summary" hidden></div>
 
     <div class="row">
-      <button type="button" class="ghost" id="undo" disabled>直前を取り消す</button>
-      <button type="button" class="ghost" id="skip">素振り扱い</button>
-      <button type="button" class="ghost" id="open">書き出す</button>
+      <button type="button" class="ghost" id="undo" disabled>直前の1件を取り消す</button>
+      <button type="button" class="ghost" id="open">CSVを書き出す</button>
     </div>
   </main>
 
-  <div class="last empty" id="last">まだ1本も記録しとらん</div>
+  <div class="last empty" id="last">まだスイングを記録していません</div>
 
   <div class="ask" id="ask" hidden>
-    <label for="who">誰のぶんか、1回だけ教えて</label>
+    <label for="who">記録する方の氏名を入力してください</label>
     <div class="askrow">
-      <input id="who" type="text" placeholder="じぶん" maxlength="24" autocomplete="off"
+      <input id="who" type="text" placeholder="氏名（空欄でも記録できます）" maxlength="24" autocomplete="off"
              enterkeyhint="done">
       <button type="button" class="ghost" id="whoOk">決定</button>
     </div>
@@ -291,23 +362,385 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 
 <section class="sheet" id="sheet" hidden aria-label="書き出し">
   <div class="who">
-    <h2>今日のぶんを書き出す</h2>
-    <label for="player">誰のぶんか（混ぜんための名前。空でもええ）</label>
+    <h2>本日の記録を書き出す</h2>
+    <label for="player">氏名（空欄でも書き出せます）</label>
     <input id="player" type="text" inputmode="text" autocomplete="off"
-           placeholder="じぶん" maxlength="24">
+           placeholder="氏名" maxlength="24">
     <p id="sheetCount">0件</p>
   </div>
   <textarea id="csv" readonly spellcheck="false"></textarea>
   <div class="foot">
-    <button type="button" class="ghost" id="copy">全部コピー</button>
-    <button type="button" class="ghost" id="dl">ファイルに保存</button>
-    <button type="button" class="ghost" id="close" style="grid-column:1/-1">戻る</button>
-    <button type="button" class="ghost danger" id="wipe" style="grid-column:1/-1">全部消す</button>
+    <button type="button" class="ghost" id="copy">すべてコピー</button>
+    <button type="button" class="ghost" id="close">戻る</button>
+    <button type="button" class="ghost danger" id="wipe" style="grid-column:1/-1">すべて削除</button>
   </div>
-  <p class="note" id="wipeNote" hidden><b>もう一回押したらほんまに消える。</b>コピーは済んどるか？</p>
+
+  <p class="note" id="wipeNote" hidden><b>もう一度押すとすべて削除されます。</b>コピー済みかご確認ください。</p>
+</section>
+
+<section class="intro" id="intro" hidden aria-label="はじめに">
+  <div class="intro-card">
+    <h1>落下点ノート</h1>
+    <p>打つ前に、打つ位置でボタンを押してください。</p>
+    <button type="button" class="ghost" id="introOk">記録を始める</button>
+  </div>
 </section>
 
 <script>
+(function(){
+  "use strict";
+  var CLUBS=["D","3W","5W","U","4I","5I","6I","7I","8I","9I","PW","AW","SW","PT"];
+  var PENALTY_LABELS={"":"なし",OB:"OB",lost:"ロスト",OB_zenshin4:"OB（前進4打）"};
+  var deviceStorageIssue="";
+  var DEV=(function(){
+    var k="aigolf.dev";
+    try{ var v=localStorage.getItem(k); if(v) return v; }
+    catch(e){ deviceStorageIssue="端末の保存領域を読み込めませんでした。記録を書き出して保管してください。"; }
+    var a="ABCDEFGHJKLMNPQRSTUVWXYZ23456789", out="";
+    for(var i=0;i<6;i++) out+=a.charAt(Math.floor(Math.random()*a.length));
+    try{ localStorage.setItem(k,out); }
+    catch(e){ deviceStorageIssue="端末識別子を保存できませんでした。再読込する前にCSVを書き出して保管してください。"; }
+    return out;
+  })();
+  var KEY="aigolf.roundlog.v2."+DEV, INTRO_KEY="aigolf.roundlog.intro."+DEV;
+  var S={recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:"",summary:null,undo:[]};
+  var fix=null, geoErr=null, errCode=null, asked=false, t0=0, perm="?", watchId=null;
+  var nudgeMsg="", nudgeTill=0, storageIssue=deviceStorageIssue, loadNotice="";
+  var saveBlocked="", brokenBackupKey="";
+  var STALE_S=15, ACC_WARN=20, GREEN_NEAR_M=20;
+  /* input/course_rose.json のうち画面計算に必要な確認済み項目だけを同梱する。 */
+  var CRS={name:"ローズゴルフクラブ",holes:[
+    {hole:1,par:5,green:[34.8920306,136.056549],green_ok:true},{hole:2,par:4,green:[34.8939767,136.055322],green_ok:true},
+    {hole:3,par:3,green:[34.8935627,136.0569029],green_ok:true},{hole:4,par:4,green:[34.8921711,136.0601311],green_ok:true},
+    {hole:5,par:4,green:[34.8900487,136.0579925],green_ok:true},{hole:6,par:4,green:[34.8922142,136.0590868],green_ok:true},
+    {hole:7,par:5,green:[34.8905364,136.0533409],green_ok:true},{hole:8,par:3,green:[34.891191,136.0552905],green_ok:true},
+    {hole:9,par:4,green:[34.8917601,136.0514162],green_ok:true},{hole:10,par:5,green:[34.8890833,136.0540949],green_ok:true},
+    {hole:11,par:4,green:[34.8881914,136.0572637],green_ok:true},{hole:12,par:3,green:[34.8874613,136.0562291],green_ok:true},
+    {hole:13,par:5,green:[34.8892341,136.0502412],green_ok:true},{hole:14,par:4,green:[34.8872237,136.0530719],green_ok:true},
+    {hole:15,par:4,green:[34.8864993,136.0488573],green_ok:true},{hole:16,par:4,green:[34.889942,136.0489534],green_ok:true},
+    {hole:17,par:3,green:[34.8884487,136.0481422],green_ok:true},{hole:18,par:4,green:[34.8916649,136.0487633],green_ok:true}
+  ]};
+  var $=function(id){ return document.getElementById(id); };
+
+  fetch("./course_rose.json").then(function(r){ return r.json(); })
+    .then(function(j){ CRS=j; paint(); }).catch(function(){ /* 同梱データを継続使用する */ });
+
+  function staleSec(){ return fix ? Math.max(0,Math.floor((Date.now()-fix.recv)/1000)) : null; }
+  function fixBad(){
+    if(!fix) return null;
+    var s=staleSec();
+    if(s>=STALE_S) return "測位が"+s+"秒前のままです";
+    if(fix.acc!=null&&fix.acc>ACC_WARN) return "測位精度が低い状態です（±"+fix.acc+"m）";
+    return null;
+  }
+  function nudge(msg){ nudgeMsg=msg; nudgeTill=Date.now()+4000; paint(); }
+  function canChange(){
+    if(!saveBlocked) return true;
+    nudge(saveBlocked==="pending"?"確定待ちの扱いを選んでください":"「新しく始める」を選ぶまで記録は変更されません");
+    return false;
+  }
+  function save(){
+    if(saveBlocked) return false;
+    try{ localStorage.setItem(KEY,JSON.stringify(S)); storageIssue=""; return true; }
+    catch(e){ storageIssue="端末に記録を保存できませんでした。再読込する前にCSVを書き出して保管してください。"; return false; }
+  }
+  function replaceState(o){
+    Object.keys(S).forEach(function(k){ delete S[k]; });
+    Object.keys(o).forEach(function(k){ S[k]=o[k]; });
+  }
+  function relinkPending(){
+    if(!S.pending) return true;
+    var id=S.pending.id;
+    for(var i=0;i<S.recs.length;i++) if(S.recs[i]&&S.recs[i].id===id){ S.pending=S.recs[i]; return true; }
+    return false;
+  }
+  function backupBroken(v){
+    var stamp=new Date().toISOString().replace(/[^0-9]/g,"");
+    brokenBackupKey=KEY+".broken."+stamp;
+    try{
+      var base=brokenBackupKey,n=1;
+      while(localStorage.getItem(brokenBackupKey)!==null) brokenBackupKey=base+"."+(n++);
+      localStorage.setItem(brokenBackupKey,v); return true;
+    }
+    catch(e){ brokenBackupKey=""; return false; }
+  }
+  function blockBroken(v){
+    saveBlocked="broken";
+    if(backupBroken(v)) storageIssue="保存済みの記録が破損していて読み込めなかったため、元の値を「"+brokenBackupKey+"」へ退避しました。「新しく始める」を選ぶまで、新しい記録は保存しません。";
+    else storageIssue="保存済みの記録が破損していて読み込めず、元の値も退避できませんでした。元の保存値は変更していません。この端末では新しい記録を開始できません。";
+  }
+  function validInt(v,min,max){ return typeof v==="number"&&isFinite(v)&&Math.floor(v)===v&&v>=min&&v<=max; }
+  function has(o,k){ return Object.prototype.hasOwnProperty.call(o,k); }
+  function validNumber(v,min,max){ return typeof v==="number"&&isFinite(v)&&(min==null||v>=min)&&(max==null||v<=max); }
+  function validNullableNumber(v,min,max){ return v===null||validNumber(v,min,max); }
+  function validRow(r){
+    if(!r||typeof r!=="object"||Array.isArray(r)) return false;
+    var required=["id","hole","shot","club","teeLat","teeLon","teeAcc","teeAlt","teeT","teeStale",
+      "ballLat","ballLon","ballAcc","ballAlt","ballT","ballStale","m","yd","brg","penalty",
+      "penaltyStrokes","holeScore","specialTee","restYd","toGreenDeg"];
+    for(var i=0;i<required.length;i++) if(!has(r,required[i])) return false;
+    return typeof r.id==="string"&&r.id.length>0&&validInt(r.hole,1,36)&&validInt(r.shot,1,Number.MAX_SAFE_INTEGER)&&
+      typeof r.club==="string"&&CLUBS.indexOf(r.club)>=0&&
+      validNumber(r.teeLat,-90,90)&&validNumber(r.teeLon,-180,180)&&validNullableNumber(r.teeAcc,0,null)&&
+      validNullableNumber(r.teeAlt,null,null)&&typeof r.teeT==="string"&&r.teeT.length>0&&validNullableNumber(r.teeStale,0,null)&&
+      validNullableNumber(r.ballLat,-90,90)&&validNullableNumber(r.ballLon,-180,180)&&validNullableNumber(r.ballAcc,0,null)&&
+      validNullableNumber(r.ballAlt,null,null)&&(r.ballT===null||typeof r.ballT==="string")&&validNullableNumber(r.ballStale,0,null)&&
+      validNullableNumber(r.m,0,null)&&validNullableNumber(r.yd,0,null)&&validNullableNumber(r.brg,0,360)&&
+      typeof r.penalty==="string"&&has(PENALTY_LABELS,r.penalty)&&validInt(r.penaltyStrokes,0,2)&&
+      (r.holeScore===null||validInt(r.holeScore,1,Number.MAX_SAFE_INTEGER))&&typeof r.specialTee==="boolean"&&
+      validNullableNumber(r.restYd,0,null)&&validNullableNumber(r.toGreenDeg,0,360);
+  }
+  function validSavedRows(o){
+    for(var i=0;i<o.recs.length;i++) if(!validRow(o.recs[i])) return false;
+    return o.pending===null||validRow(o.pending);
+  }
+  function validUndoState(o){
+    if(!o||typeof o!=="object"||Array.isArray(o)||!Array.isArray(o.recs)) return false;
+    var required=["hole","shot","club","pending","player","course","ground","summary"];
+    for(var i=0;i<required.length;i++) if(!has(o,required[i])) return false;
+    return validInt(o.hole,1,36)&&validInt(o.shot,1,Number.MAX_SAFE_INTEGER)&&
+      typeof o.club==="string"&&CLUBS.indexOf(o.club)>=0&&
+      typeof o.player==="string"&&typeof o.course==="string"&&typeof o.ground==="string"&&
+      (o.summary===null||(typeof o.summary==="object"&&!Array.isArray(o.summary)))&&validSavedRows(o);
+  }
+  function validUndoHistory(a){
+    if(!Array.isArray(a)) return false;
+    for(var i=0;i<a.length;i++){
+      if(typeof a[i]!=="string") return false;
+      try{ if(!validUndoState(JSON.parse(a[i]))) return false; }
+      catch(e){ return false; }
+    }
+    return true;
+  }
+  function quarantineUndo(v,o){
+    o.undo=[];
+    if(backupBroken(v)) storageIssue="取り消しの履歴が破損していたため、記録一覧を保持し、取り消しを使用できない状態にしました。元の保存値は「"+brokenBackupKey+"」へ退避しました。";
+    else storageIssue="取り消しの履歴が破損していたため、記録一覧を保持し、取り消しを使用できない状態にしました。元の保存値は退避できませんでした。CSVを書き出して保管してください。";
+  }
+  function normalizeLoaded(o){
+    var restored=[];
+    if(!validInt(o.hole,1,36)){o.hole=1;restored.push("ホール番号");}
+    if(!validInt(o.shot,1,Number.MAX_SAFE_INTEGER)){o.shot=1;restored.push("打数");}
+    if(typeof o.club!=="string"||CLUBS.indexOf(o.club)<0){o.club="D";restored.push("番手");}
+    if(!has(o,"pending")) o.pending=null;
+    o.course=typeof o.course==="string"?o.course:""; o.ground=typeof o.ground==="string"?o.ground:"";
+    o.player=typeof o.player==="string"?o.player:""; o.summary=o.summary||null; if(!has(o,"undo")) o.undo=[];
+    if(restored.length) loadNotice=restored.join("・")+"が保存値にないか、使用できない値だったため、既定値に戻しました。記録一覧は保持しています。";
+  }
+  function load(){
+    var v=null;
+    try{
+      v=localStorage.getItem(KEY); if(v===null) return;
+      var o=JSON.parse(v);
+      if(!o||typeof o!=="object"||Array.isArray(o)||!Array.isArray(o.recs)){blockBroken(v);return;}
+      normalizeLoaded(o);
+      if(!validSavedRows(o)){blockBroken(v);return;}
+      if(!validUndoHistory(o.undo)) quarantineUndo(v,o);
+      replaceState(o);
+      if(!relinkPending()){
+        saveBlocked="pending";
+        var pendingIssue="保存された確定待ちの記録が記録一覧と一致しません。記録は変更していません。「確定待ちを取り消す」か「そのまま続ける」を選んでください。";
+        storageIssue=storageIssue?storageIssue+" "+pendingIssue:pendingIssue;
+      }
+    }catch(e){ if(v!==null) blockBroken(v); else storageIssue="端末の保存領域を読み込めませんでした。記録を書き出して保管してください。"; }
+  }
+  function remember(){
+    var snapshot=JSON.parse(JSON.stringify(S)); delete snapshot.undo;
+    S.undo=Array.isArray(S.undo)?S.undo:[]; S.undo.push(JSON.stringify(snapshot)); if(S.undo.length>30) S.undo.shift();
+  }
+  function undo(){
+    if(!canChange()) return;
+    if(!S.undo||!S.undo.length) return;
+    var remaining=S.undo.slice(0,-1),snapshot=JSON.parse(S.undo[S.undo.length-1]);
+    replaceState(snapshot); S.undo=remaining; relinkPending(); save(); paint();
+  }
+  function geo(a,b){
+    var R=6371008.8, r=Math.PI/180;
+    var p1=a.lat*r,p2=b.lat*r,dp=(b.lat-a.lat)*r,dl=(b.lon-a.lon)*r;
+    var h=Math.sin(dp/2)*Math.sin(dp/2)+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)*Math.sin(dl/2);
+    var m=2*R*Math.asin(Math.min(1,Math.sqrt(h)));
+    var y=Math.sin(dl)*Math.cos(p2),x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+    return {m:m,yd:m/0.9144,brg:(Math.atan2(y,x)/r+360)%360};
+  }
+  function compass(d){
+    var n=["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
+    return n[Math.round(d/22.5)%16];
+  }
+  function holeInfo(){
+    if(!CRS||!CRS.holes) return null;
+    var h=CRS.holes[(S.hole-1)%18]; return h&&h.green?h:null;
+  }
+  function toGreen(){
+    var h=holeInfo(); if(!h||!fix) return null;
+    if(fix.acc!=null&&fix.acc>ACC_WARN) return {bad:"測位精度が低いため、残り距離を表示できません（±"+fix.acc+"m）"};
+    var g=geo({lat:fix.lat,lon:fix.lon},{lat:h.green[0],lon:h.green[1]});
+    return {yd:g.yd,m:g.m,brg:g.brg,par:h.par,ok:h.green_ok};
+  }
+  function got(p){
+    geoErr=null; errCode=null;
+    fix={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy==null?null:Math.round(p.coords.accuracy),
+      alt:p.coords.altitude==null?null:Math.round(p.coords.altitude*10)/10,t:new Date(p.timestamp).toISOString(),recv:Date.now()};
+    paint();
+  }
+  function failed(e){
+    errCode=e&&e.code;
+    geoErr=errCode===1?"位置情報が許可されていません":errCode===3?"測位が時間切れになりました。空が見える場所で再度お試しください":"測位できません"+(e&&e.message?"（"+e.message+"）":"");
+    paint();
+  }
+  function startGeo(){
+    if(!navigator.geolocation){ geoErr="この端末では位置情報を使用できません"; return paint(); }
+    asked=true; t0=Date.now(); geoErr=null; errCode=null; paint();
+    navigator.geolocation.getCurrentPosition(got,failed,{enableHighAccuracy:true,maximumAge:0,timeout:25000});
+    if(watchId!=null) navigator.geolocation.clearWatch(watchId);
+    watchId=navigator.geolocation.watchPosition(got,failed,{enableHighAccuracy:true,maximumAge:2000,timeout:25000});
+  }
+  if(navigator.permissions&&navigator.permissions.query){
+    try{ navigator.permissions.query({name:"geolocation"}).then(function(r){ perm=r.state; paint(); r.onchange=function(){perm=r.state;paint();}; },function(){}); }catch(e){}
+  }
+  function pointRow(){
+    var tg=toGreen();
+    return {id:String(Date.now())+"-"+String(Math.random()),hole:S.hole,shot:S.shot,club:S.club,
+      teeLat:fix.lat,teeLon:fix.lon,teeAcc:fix.acc,teeAlt:fix.alt,teeT:fix.t,teeStale:staleSec(),
+      ballLat:null,ballLon:null,ballAcc:null,ballAlt:null,ballT:null,ballStale:null,m:null,yd:null,brg:null,
+      penalty:"",penaltyStrokes:0,holeScore:null,specialTee:false,
+      restYd:(tg&&!tg.bad)?tg.yd:null,toGreenDeg:(tg&&!tg.bad)?tg.brg:null};
+  }
+  function finalizePending(){
+    var r=S.pending, g=geo({lat:r.teeLat,lon:r.teeLon},fix), tg=toGreen();
+    r.ballLat=fix.lat; r.ballLon=fix.lon; r.ballAcc=fix.acc; r.ballAlt=fix.alt; r.ballT=fix.t;
+    r.ballStale=staleSec(); r.m=g.m; r.yd=g.yd; r.brg=g.brg;
+    r.restYd=(tg&&!tg.bad)?tg.yd:null; r.toGreenDeg=(tg&&!tg.bad)?tg.brg:null;
+    S.pending=null;
+  }
+  function duplicatePendingFix(){ return S.pending&&S.pending.teeT===fix.t; }
+  function holeRows(h){ return S.recs.filter(function(r){return r.hole===h;}); }
+  function holeScore(h){
+    return holeRows(h).reduce(function(n,r){return n+1+(Number(r.penaltyStrokes)||0);},0);
+  }
+  function setPenalty(kind){
+    if(!canChange()) return;
+    if(!S.pending) return;
+    remember(); var r=S.pending;
+    r.penalty=kind; r.penaltyStrokes=1;
+    r.ballLat=r.ballLon=r.ballAcc=r.ballAlt=r.ballT=r.ballStale=r.m=r.yd=r.brg=null;
+    S.pending=null; S.shot+=1; save(); paint();
+  }
+  function paint(){
+    var acc=fix&&fix.acc!=null?fix.acc:null,bad=fixBad();
+    $("dot").className="dot"+(geoErr?" bad":acc==null?"":bad?" bad":acc<=8?" ok":" warn");
+    $("fixText").innerHTML=fix?("測位 <b>±"+(acc==null?"?":acc)+"m</b>"+(bad?"　<b>"+bad+"</b>":"")):geoErr?geoErr:asked?"許可と測位を待っています…":"まだ測位していません";
+    $("nRec").textContent=S.recs.length+"（確定待ち "+(S.pending?1:0)+"）";
+    $("holeNo").textContent=S.hole;
+    var gb=$("greenBox"),g=toGreen();
+    if(!g) gb.hidden=true; else { gb.hidden=false; if(g.bad){gb.className="green stale";$("gYd").textContent="—";$("gDeg").textContent=g.bad;$("gPar").textContent="";}
+      else {gb.className="green";$("gYd").textContent=Math.round(g.yd);$("gDeg").textContent="グリーンまで ／ 方位 "+Math.round(g.brg)+"°";$("gPar").textContent=(g.par?("par"+g.par):"")+(g.ok?"":" ※未確認");}}
+    var b=$("hit"); b.disabled=!!saveBlocked; b.dataset.state=!fix?"geo":"tee";
+    $("hitLead").textContent=!fix?"はじめに1回だけ":"HOLE "+S.hole+" ・ "+S.shot+"打目（"+S.club+"）";
+    $("hitBig").textContent=!fix?(asked?"もう一度測位する":"位置情報をオンにする"):"この位置から打つ";
+    $("hitSub").textContent=!fix?(asked?"許可画面では「Webサイトの使用中は許可」を選んでください":"押すと端末が位置情報の許可を確認します"):
+      bad?bad+"。記録はできますが、数秒待つこともできます":Date.now()<nudgeTill?nudgeMsg:"打つ前に、打つ位置で押してください";
+    $("undo").disabled=!!saveBlocked||!(S.undo&&S.undo.length);
+    $("ob").hidden=!S.pending; $("lost").hidden=!S.pending; $("holeOut").disabled=!S.pending;
+    var last=S.recs[S.recs.length-1],canSpecial=last&&!S.pending&&last.penalty==="OB"&&!last.specialTee;
+    $("special").hidden=!canSpecial;
+    $("penaltyEdit").hidden=!(last&&last.penalty);
+    if(last&&last.penalty) $("penaltyStrokes").value=String(last.penaltyStrokes||0);
+    var L=$("last");
+    if(!last){L.className="last empty";L.textContent="まだスイングを記録していません";}
+    else if(last.penalty){L.className="last";L.innerHTML='<div class="yd"><span class="num">'+PENALTY_LABELS[last.penalty]+'</span></div><div class="meta"><b>'+last.club+'</b>　終点は未確定です<br>HOLE '+last.hole+' ・ '+last.shot+'打目　罰打 '+last.penaltyStrokes+'打</div><div class="meta">—</div>';}
+    else if(last.yd!=null){L.className="last";L.innerHTML='<div class="yd"><span class="num">'+Math.round(last.yd)+'</span><span>yd</span></div><div class="meta"><b>'+last.club+'</b>　'+compass(last.brg)+' '+Math.round(last.brg)+'°<br>HOLE '+last.hole+' ・ '+last.shot+'打目</div><div class="meta">確定</div>';}
+    else {L.className="last empty";L.textContent="HOLE "+last.hole+" ・ "+last.shot+"打目は終点の確定待ちです";}
+    $("summary").hidden=!S.summary; if(S.summary) $("summary").textContent="HOLE "+S.summary.hole+"：スイング "+S.summary.swings+"回、罰打 "+S.summary.penalties+"打、スコア "+S.summary.score;
+    var cs=$("clubs").children; for(var i=0;i<cs.length;i++) cs[i].setAttribute("aria-pressed",cs[i].textContent===S.club?"true":"false");
+    if($("course").value!==S.course) $("course").value=S.course;
+    var gs=$("ground").children; for(var j=0;j<gs.length;j++) gs[j].setAttribute("aria-pressed",gs[j].getAttribute("data-g")===S.ground?"true":"false");
+    $("roundbar").className="round"+((S.course&&S.ground)?"":" todo"); $("ask").hidden=!!S.player;
+    var alertText=[loadNotice,storageIssue].filter(function(x){return x;}).join(" ");
+    var storageAlert=$("storageAlert"); storageAlert.hidden=!alertText; storageAlert.textContent=alertText;
+    var recovery=$("recoveryActions"); recovery.hidden=!saveBlocked;
+    $("pendingCancel").hidden=saveBlocked!=="pending"; $("pendingContinue").hidden=saveBlocked!=="pending";
+    $("brokenStart").hidden=saveBlocked!=="broken"||!brokenBackupKey;
+    var d=$("diag"); d.hidden=!!fix; if(!fix) d.textContent="安全な接続:"+(window.isSecureContext?"○":"×")+" / API:"+(navigator.geolocation?"○":"×")+" / 許可:"+perm+" / 要求:"+(asked?"済":"未実施")+(asked?" / 経過:"+Math.round((Date.now()-t0)/1000)+"秒":"")+" / エラー:"+(errCode==null?"—":errCode);
+  }
+  setInterval(function(){if(asked)paint();},2000);
+  CLUBS.forEach(function(c){var b=document.createElement("button");b.type="button";b.textContent=c;b.setAttribute("aria-pressed","false");b.onclick=function(){if(!canChange())return;S.club=c;save();paint();};$("clubs").appendChild(b);});
+  [["firm","硬い"],["normal","普通"],["soft","柔らかい"]].forEach(function(g){var b=document.createElement("button");b.type="button";b.textContent=g[1];b.setAttribute("data-g",g[0]);b.onclick=function(){if(!canChange())return;S.ground=S.ground===g[0]?"":g[0];save();paint();};$("ground").appendChild(b);});
+  $("course").oninput=function(){if(!canChange())return;S.course=this.value.trim();save();paint();};
+  $("hit").onclick=function(){
+    if(!canChange())return;
+    if(!fix){startGeo();return;}
+    var near=toGreen(); if(near&&!near.bad&&near.m<=GREEN_NEAR_M&&S.club!=="PT"){S.club="PT";nudge("グリーン上のため、番手をPTに変更しました");}
+    if(duplicatePendingFix()){nudge("同じ測位では続けて記録できません。数秒待ってからもう一度お試しください");return;}
+    remember(); if(S.pending) finalizePending();
+    var r=pointRow(); S.recs.push(r); S.pending=r; S.shot+=1; S.summary=null; save(); paint();
+  };
+  $("ob").onclick=function(){setPenalty("OB");}; $("lost").onclick=function(){setPenalty("lost");};
+  $("special").onclick=function(){
+    if(!canChange())return;
+    var r=S.recs[S.recs.length-1]; if(!r||r.penalty!=="OB"||r.specialTee) return;
+    remember(); var old=r.penaltyStrokes,desired=r.shot===1?2:1; r.penaltyStrokes=desired; r.penalty=desired===2?"OB_zenshin4":"OB"; r.specialTee=true; S.shot+=desired-old; save(); paint();
+  };
+  $("penaltyStrokes").oninput=function(){
+    if(!canChange())return;
+    var r=S.recs[S.recs.length-1]; if(!r||!r.penalty) return;
+    remember(); var old=Number(r.penaltyStrokes)||0,n=Math.max(0,Math.min(2,Number(this.value)||0)); r.penaltyStrokes=n;
+    if(r.penalty==="OB"||r.penalty==="OB_zenshin4") r.penalty=n===2?"OB_zenshin4":"OB";
+    if(r.hole===S.hole) S.shot+=n-old; save(); paint();
+  };
+  $("holeOut").onclick=function(){
+    if(!canChange())return;
+    if(!S.pending||!fix)return; if(duplicatePendingFix()){nudge("同じ測位では終点を確定できません。数秒待ってからもう一度お試しください");return;}
+    remember(); var h=S.hole; finalizePending(); var rows=holeRows(h),score=holeScore(h),pen=rows.reduce(function(n,r){return n+(Number(r.penaltyStrokes)||0);},0);
+    rows[rows.length-1].holeScore=score; S.summary={hole:h,swings:rows.length,penalties:pen,score:score}; S.hole=h+1; S.shot=1; if(S.club==="PT")S.club="D"; save(); paint();
+  };
+  $("undo").onclick=undo;
+  function reopenHole(h){
+    var rows=holeRows(h),last=rows[rows.length-1];
+    if(!last||last.holeScore==null) return false;
+    last.holeScore=null;
+    last.ballLat=last.ballLon=last.ballAcc=last.ballAlt=last.ballT=last.ballStale=last.m=last.yd=last.brg=null;
+    S.pending=last;
+    S.shot=rows.reduce(function(n,r){return Math.max(n,r.shot+1+(Number(r.penaltyStrokes)||0));},1);
+    return true;
+  }
+  function goHole(d){
+    if(!canChange())return;
+    if(S.pending){nudge("確定待ちのスイングがあります。ホールアウトまたは取り消しを選んでください");return;}
+    var h=S.hole+d;if(h<1)return;remember();S.hole=h;
+    if(!(d<0&&reopenHole(h))) S.shot=holeRows(h).reduce(function(n,r){return Math.max(n,r.shot+1+(Number(r.penaltyStrokes)||0));},1);
+    if(S.club==="PT")S.club="D";S.summary=null;save();paint();
+  }
+  $("holeUp").onclick=function(){goHole(1);}; $("holeDown").onclick=function(){goHole(-1);};
+  function setWho(v){if(!canChange())return;S.player=String(v||"").trim();save();paint();}
+  $("whoOk").onclick=function(){setWho($("who").value);}; $("who").onkeydown=function(e){if(e.key==="Enter"){e.preventDefault();setWho(this.value);}};
+  var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time","ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time","dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty","course","ground","rest_yd","to_green_deg","penalty_strokes","hole_score"];
+  function q(v){v=String(v==null?"":v);return /[\",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
+  function csv(){var out=[HEAD.join(",")];S.recs.forEach(function(r){out.push([q(S.player),DEV,r.hole,r.shot,r.club,r.teeLat.toFixed(7),r.teeLon.toFixed(7),r.teeAcc,r.teeAlt==null?"":r.teeAlt,r.teeT,r.ballLat==null?"":r.ballLat.toFixed(7),r.ballLon==null?"":r.ballLon.toFixed(7),r.ballAcc==null?"":r.ballAcc,r.ballAlt==null?"":r.ballAlt,r.ballT==null?"":r.ballT,r.m==null?"":r.m.toFixed(1),r.yd==null?"":r.yd.toFixed(1),r.brg==null?"":r.brg.toFixed(1),r.teeStale==null?"":r.teeStale,r.ballStale==null?"":r.ballStale,r.penalty||"",q(S.course),S.ground||"",r.restYd==null?"":r.restYd.toFixed(1),r.toGreenDeg==null?"":r.toGreenDeg.toFixed(1),Number(r.penaltyStrokes)||0,r.holeScore==null?"":r.holeScore].join(","));});return out.join("\n");}
+  var armed=false;
+  $("open").onclick=function(){$("player").value=S.player;$("csv").value=csv();$("sheetCount").textContent=S.recs.length+"件（端末識別子 "+DEV+"）";armed=false;$("wipeNote").hidden=true;$("wipe").textContent="すべて削除";$("sheet").hidden=false;};
+  $("player").oninput=function(){if(!canChange())return;S.player=this.value.trim();save();$("csv").value=csv();}; $("close").onclick=function(){$("sheet").hidden=true;};
+  $("copy").onclick=function(){var t=$("csv");t.focus();t.select();t.setSelectionRange(0,999999);var done=function(){$("copy").textContent="コピーしました";setTimeout(function(){$("copy").textContent="すべてコピー";},1600);};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done,function(){$("copy").textContent="長押しで選択してコピーしてください";});else try{document.execCommand("copy");done();}catch(e){$("copy").textContent="長押しで選択してコピーしてください";}};
+  $("wipe").onclick=function(){if(!canChange())return;if(!armed){armed=true;$("wipeNote").hidden=false;$("wipe").textContent="削除を確定する";return;}remember();var u=S.undo;replaceState({recs:[],hole:1,shot:1,club:S.club,pending:null,player:S.player,course:S.course,ground:S.ground,summary:null,undo:u});save();paint();$("sheet").hidden=true;};
+  $("pendingCancel").onclick=function(){
+    if(saveBlocked!=="pending")return; S.pending=null; saveBlocked=""; storageIssue="";
+    loadNotice="利用者の選択により、一致しなかった確定待ちを取り消しました。記録一覧は保持しています。"; save(); paint();
+  };
+  $("pendingContinue").onclick=function(){
+    if(saveBlocked!=="pending")return;
+    S.recs.push(S.pending); saveBlocked=""; storageIssue="";
+    loadNotice="利用者の選択により、確定待ちの記録を記録一覧へ戻しました。そのまま記録を続けられます。"; save(); paint();
+  };
+  $("brokenStart").onclick=function(){
+    if(saveBlocked!=="broken"||!brokenBackupKey)return;
+    replaceState({recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:"",summary:null,undo:[]});
+    saveBlocked=""; storageIssue=""; loadNotice="退避した元の値を残したまま、新しい記録を開始しました。退避先は「"+brokenBackupKey+"」です。"; save(); paint();
+  };
+  $("introOk").onclick=function(){try{localStorage.setItem(INTRO_KEY,"1");}catch(e){storageIssue="初回案内の確認状態を保存できませんでした。ラウンド記録も保存できない可能性があります。CSV書き出しをご利用ください。";paint();}$("intro").hidden=true;};
+  load(); paint();
+  try{$("intro").hidden=localStorage.getItem(INTRO_KEY)==="1";}catch(e){$("intro").hidden=false;storageIssue="端末の保存領域を読み込めませんでした。記録を書き出して保管してください。";paint();}
+})();
+</script>
+<script type="text/plain" data-legacy="two-tap">
 (function(){
   "use strict";
   var KEY="aigolf.roundlog.v1";
@@ -357,6 +790,28 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     try{ localStorage.setItem(k,out); }catch(e){}
     return out;
   })();
+
+  /* ══ ★グリーンまで（2026-09-15） ══════════════════════════
+     own_* のデータだけ（航空写真＋本人確認）。**OSM は1行も入っとらん**。
+     ⚠無い時は黙って何も出さん。嘘の距離を出す方が危ない。 */
+  var CRS=null, GREEN_NEAR_M=20;   /* ★これ以内に居たらパター扱いに寄せる */
+  fetch("./course_rose.json").then(function(r){ return r.json(); })
+    .then(function(j){ CRS=j; paint(); })
+    .catch(function(){ CRS=null; });
+
+  function holeInfo(){
+    if(!CRS||!CRS.holes) return null;
+    var h=CRS.holes[(S.hole-1)%18];
+    return (h&&h.green)?h:null;
+  }
+  /* 今おる所から グリーン中央 まで。★測位が粗い時は出さん（数字が意味を持たん） */
+  function toGreen(){
+    var h=holeInfo();
+    if(!h||!fix) return null;
+    if(fix.acc!=null&&fix.acc>ACC_WARN) return {bad:"測位が粗い（±"+fix.acc+"m）"};
+    var g=geo({lat:fix.lat,lon:fix.lon},{lat:h.green[0],lon:h.green[1]});
+    return {yd:g.yd, m:g.m, brg:g.brg, par:h.par, ok:h.green_ok};
+  }
 
   function save(){ try{ localStorage.setItem(KEY,JSON.stringify(S)); }catch(e){} }
   function load(){
@@ -435,6 +890,22 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 
     $("nRec").textContent=S.recs.length;
     $("holeNo").textContent=S.hole;
+
+    /* ★グリーンまで */
+    (function(){
+      var box=$("greenBox"), g=toGreen();
+      if(!g){ box.hidden=true; return; }
+      box.hidden=false;
+      if(g.bad){
+        box.className="green stale";
+        $("gYd").textContent="—"; $("gDeg").textContent=g.bad; $("gPar").textContent="";
+        return;
+      }
+      box.className="green";
+      $("gYd").textContent=Math.round(g.yd);
+      $("gDeg").textContent="グリーンまで ／ 方位 "+Math.round(g.brg)+"°";
+      $("gPar").textContent=(g.par?("par"+g.par):"")+(g.ok?"":" ※未確認");
+    })();
 
     var b=$("hit");
     b.disabled=false;
@@ -528,6 +999,18 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 
   $("hit").onclick=function(){
     if(!fix){ startGeo(); return; }          // ★指で押したのを起点に要求する
+    /* 🚨★グリーンの上に立っとったら、番手は PT にしか成り得ん。
+       IMU で見分けようとして外した（おでこのIMUは**首しか見とらん**＝
+       パターとフルショットで振りも衝撃も差が出んかった／実測 40発）。
+       ⇒ **位置なら確実に分かる。**押し忘れをここで拾う。 */
+    (function(){
+      var g=toGreen();
+      if(g&&!g.bad&&g.m!=null&&g.m<=GREEN_NEAR_M&&S.club!=="PT"&&!S.pending){
+        S.club="PT"; nudge("グリーンの上やからパターにした");
+        var bs=$("clubs").querySelectorAll("button");
+        for(var i=0;i<bs.length;i++) bs[i].setAttribute("aria-pressed", bs[i].textContent==="PT"?"true":"false");
+      }
+    })();
     if(!S.pending){
       S.pending={lat:fix.lat,lon:fix.lon,acc:fix.acc,alt:fix.alt,t:fix.t,
                  stale:staleSec(),club:S.club};
@@ -538,7 +1021,9 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
          数秒待てば watchPosition が動くから、ここは止めてええ */
       if(a.t===fix.t){ nudge("測位がまだ動いとらん。数秒待ってもう一回押して"); return; }
       var g=geo(a,fix);
+      var tg=toGreen();
       S.recs.push({
+        restYd:(tg&&!tg.bad)?tg.yd:null, toGreenDeg:(tg&&!tg.bad)?tg.brg:null,
         hole:S.hole, shot:S.shot, club:a.club,
         teeLat:a.lat, teeLon:a.lon, teeAcc:a.acc, teeAlt:a.alt, teeT:a.t, teeStale:a.stale,
         ballLat:fix.lat, ballLon:fix.lon, ballAcc:fix.acc, ballAlt:fix.alt, ballT:fix.t,
@@ -598,7 +1083,9 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time",
             "ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time",
             "dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty",
-            "course","ground"];
+            "course","ground",
+            /* ★2026-09-15 追加。**末尾に足す**＝位置で読む道具を壊さん */
+            "rest_yd","to_green_deg"];
   function q(v){
     v=String(v==null?"":v);
     return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
@@ -612,7 +1099,8 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
         r.ballAcc==null?"":r.ballAcc, r.ballAlt==null?"":r.ballAlt, r.ballT==null?"":r.ballT,
         r.m==null?"":r.m.toFixed(1), r.yd==null?"":r.yd.toFixed(1), r.brg==null?"":r.brg.toFixed(1),
         r.teeStale==null?"":r.teeStale, r.ballStale==null?"":r.ballStale,
-        r.penalty||"", q(S.course), S.ground||""].join(","));
+        r.penalty||"", q(S.course), S.ground||"",
+        r.restYd==null?"":r.restYd.toFixed(1), r.toGreenDeg==null?"":r.toGreenDeg.toFixed(1)].join(","));
     });
     return out.join("\n");
   }
