@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#19613F">
+<meta name="description" content="ゴルフのラウンド中に、打った場所と球のあった場所をGPSで記録する1枚のページ。">
+<title>キャディ — グリーンまで</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="落下点ノート">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+</head>
+<body>
+<style>
+  :root{
+    --bg:#0E1411; --card:#161D19; --line:#26302A;
+    --ink:#EAF0EB; --soft:#A7B3AA; --mute:#75827A;
+    --go:#3FD18B; --warn:#E8944A; --stop:#E0604A;
+    --f:"Hiragino Kaku Gothic ProN","Yu Gothic UI",system-ui,sans-serif;
+    --m:ui-monospace,"SF Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);
+       display:flex;flex-direction:column;overflow:hidden;
+       padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+  .n{font-family:var(--m);font-variant-numeric:tabular-nums}
+
+  header{display:flex;align-items:center;gap:10px;padding:10px 14px;
+         border-bottom:1px solid var(--line);flex:0 0 auto}
+  header .cn{font-size:13px;font-weight:700}
+  header .gps{margin-left:auto;font-family:var(--m);font-size:11px;color:var(--mute)}
+
+  /* ── ホール選び ── */
+  .holes{display:grid;grid-template-columns:repeat(9,1fr);gap:3px;padding:8px 10px;flex:0 0 auto}
+  .holes button{font-family:var(--m);font-size:13px;font-weight:700;padding:7px 0;border-radius:4px;
+    border:1px solid var(--line);background:#121814;color:var(--soft)}
+  .holes button.on{background:var(--go);color:#07130D;border-color:var(--go)}
+
+  /* ── 本体 ── */
+  main{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;
+       align-items:center;padding:6px 16px;min-height:0;gap:4px}
+  .hole{font-family:var(--m);font-size:13px;color:var(--soft);letter-spacing:.06em}
+  .big{font-family:var(--m);font-size:clamp(76px,26vw,150px);font-weight:600;line-height:.92;
+       letter-spacing:-.03em}
+  .unit{font-size:16px;color:var(--soft);margin-left:6px;letter-spacing:.05em}
+  .sub{font-family:var(--m);font-size:13px;color:var(--mute)}
+  .why{color:var(--warn);font-size:15px;line-height:1.7;text-align:center;max-width:22em;padding:10px 0}
+
+  /* ── 方向 ── */
+  .dial{width:min(46vw,190px);aspect-ratio:1;position:relative;margin-top:4px}
+  .dial svg{width:100%;height:100%;display:block}
+  .dialnote{font-family:var(--m);font-size:11px;color:var(--mute);margin-top:2px}
+
+  /* ── 打った所を残す ── */
+  footer{flex:0 0 auto;border-top:1px solid var(--line);padding:9px 10px 12px;display:grid;gap:8px}
+  .clubs{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+  .clubs button{font-family:var(--m);font-size:12px;font-weight:700;padding:11px 0;border-radius:5px;
+    border:1px solid var(--line);background:#121814;color:var(--ink)}
+  .clubs button:active{background:var(--go);color:#07130D}
+  .row{display:flex;gap:8px}
+  .row button{flex:1;font-size:13px;font-weight:700;padding:11px;border-radius:5px;border:0;
+    background:#232D27;color:var(--ink)}
+  .row button.p{background:var(--go);color:#07130D}
+  .log{font-family:var(--m);font-size:11px;color:var(--mute);min-height:1.3em;text-align:center}
+  .att{font-family:var(--m);font-size:9.5px;color:#4E594F;text-align:center;letter-spacing:.02em}
+</style></head><body>
+
+<header>
+  <span class="cn" id="cn">—</span>
+  <span class="gps" id="gps">測位待ち</span>
+</header>
+
+<div class="holes" id="holes"></div>
+
+<main>
+  <div class="hole" id="hl">—</div>
+  <div id="dist"><span class="big n" id="yd">—</span><span class="unit">yd</span></div>
+  <div class="sub" id="sub">グリーン中央まで</div>
+  <div class="why" id="why" hidden></div>
+  <div class="dial" id="dialwrap">
+    <svg viewBox="0 0 100 100" aria-label="グリーンの方向">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="#26302A" stroke-width="1.5"/>
+      <circle cx="50" cy="50" r="2.4" fill="#75827A"/>
+      <g id="needle"><path d="M50 12 L57 52 L50 46 L43 52 Z" fill="#3FD18B"/></g>
+      <text x="50" y="9" text-anchor="middle" font-size="7" fill="#75827A" font-family="monospace">N</text>
+    </svg>
+  </div>
+  <div class="dialnote" id="dn">—</div>
+</main>
+
+<footer>
+  <div class="clubs" id="clubs"></div>
+  <div class="row">
+    <button id="prev">◀ 前</button>
+    <button id="undo">1つ消す</button>
+    <button class="p" id="save">CSV保存</button>
+    <button id="next">次 ▶</button>
+  </div>
+  <div class="log" id="log">—</div>
+  <div class="att">グリーン＝航空写真（出典：地理院タイル・国土地理院）＋本人確認／OSM不使用</div>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ── 電波が無い所でも開けるようにする ──
+     ⚠build_site.py の自動挿入は round-log の作りに合わせてあって、ここには当たらん。
+       ★せやからここに直に書く（実際に抜けとった）。 */
+  if ("serviceWorker" in navigator){
+    window.addEventListener("load", function(){
+      navigator.serviceWorker.register("./sw.js").catch(function(){});
+    });
+  }
+
+  var YD = 1.0936133, ACC_MAX = 25;      // ★これより測位が粗かったら数字を出さん
+  var C = null, hole = 1, pos = null, heading = null, shots = [];
+
+  function $(id){ return document.getElementById(id); }
+  function dm(a,b,c,d){
+    return Math.hypot((c-a)*111320, (d-b)*111320*Math.cos(a*Math.PI/180));
+  }
+  function bearing(a,b,c,d){
+    var y=(d-b)*Math.PI/180*Math.cos((a+c)/2*Math.PI/180), x=(c-a)*Math.PI/180;
+    return (Math.atan2(y,x)*180/Math.PI+360)%360;
+  }
+
+  // ── コースを読む ───────────────────────────────────
+  fetch('course_rose.json').then(function(r){ return r.json(); }).then(function(j){
+    C = j; $('cn').textContent = j.name;
+    var box = $('holes');
+    j.holes.forEach(function(h){
+      var b = document.createElement('button');
+      b.textContent = h.hole; b.id = 'h'+h.hole;
+      b.onclick = function(){ setHole(h.hole); };
+      box.appendChild(b);
+    });
+    load(); setHole(hole); draw();
+  }).catch(function(e){
+    $('why').hidden = false;
+    $('why').textContent = 'コースのデータが読めん（course_rose.json）：' + e;
+  });
+
+  var CLUBS = ['D','3W','U','5I','7I','9I','PW','AW','SW','PT','—','—','—','—'];
+  (function(){
+    var box = $('clubs');
+    CLUBS.slice(0,7).concat(CLUBS.slice(7,14)).forEach(function(c){
+      if (c === '—') { var s=document.createElement('span'); box.appendChild(s); return; }
+      var b = document.createElement('button'); b.textContent = c;
+      b.onclick = function(){ mark(c); };
+      box.appendChild(b);
+    });
+  })();
+
+  function setHole(n){
+    hole = n;
+    C.holes.forEach(function(h){
+      var b = $('h'+h.hole); if (b) b.className = (h.hole===n) ? 'on' : '';
+    });
+    draw();
+  }
+  $('next').onclick = function(){ setHole(hole % 18 + 1); };
+  $('prev').onclick = function(){ setHole((hole + 16) % 18 + 1); };
+
+  // ── 測位 ─────────────────────────────────────────
+  if (navigator.geolocation){
+    navigator.geolocation.watchPosition(function(p){
+      pos = p.coords; draw();
+    }, function(e){
+      $('gps').textContent = '測位×';
+      $('why').hidden = false;
+      $('why').textContent = '位置情報が取れん（' + e.message + '）。'
+        + 'ブラウザの許可と、HTTPSで開いとるかを確かめて。';
+    }, {enableHighAccuracy:true, maximumAge:2000, timeout:15000});
+  }
+  window.addEventListener('deviceorientationabsolute', onHead, true);
+  window.addEventListener('deviceorientation', onHead, true);
+  function onHead(e){
+    var h = (e.webkitCompassHeading != null) ? e.webkitCompassHeading
+          : (e.absolute && e.alpha != null) ? (360 - e.alpha) : null;
+    if (h != null){ heading = h; draw(); }
+  }
+
+  // ── 描く ─────────────────────────────────────────
+  function draw(){
+    if (!C) return;
+    var h = C.holes[hole-1];
+    var par = h.par ? ('par' + h.par) : 'par—';
+    var yw = h.yards && h.yards.WHITE ? ('／' + h.yards.WHITE + 'yd') : '';
+    $('hl').textContent = hole + '番  ' + par + yw + (h.hdcp ? ('  HDCP' + h.hdcp) : '');
+
+    if (pos) $('gps').textContent = '±' + Math.round(pos.accuracy) + 'm';
+
+    var why = null;
+    if (!h.green)        why = 'このホールのグリーンがまだ入っとらん。';
+    else if (!h.green_ok) why = 'このグリーンは機械が当てただけで、まだ目で見てない。';
+    else if (!pos)        why = '測位待ち。';
+    else if (pos.accuracy > ACC_MAX)
+      why = '今の測位が ±' + Math.round(pos.accuracy) + 'm。'
+          + 'これで距離を出しても意味が無いから、出さん。';
+
+    if (why){
+      $('yd').textContent = '—';
+      $('dist').style.opacity = .25;
+      $('sub').textContent = '';
+      $('why').hidden = false; $('why').textContent = why;
+      $('dialwrap').style.opacity = .2; $('dn').textContent = '—';
+      return;
+    }
+    $('dist').style.opacity = 1; $('why').hidden = true;
+    $('dialwrap').style.opacity = 1;
+
+    var d = dm(pos.latitude, pos.longitude, h.green[0], h.green[1]);
+    var yd = d * YD;
+    $('yd').textContent = Math.round(yd);
+    $('sub').textContent = 'グリーン中央まで（±' + Math.round(pos.accuracy * YD) + 'yd）';
+
+    var br = bearing(pos.latitude, pos.longitude, h.green[0], h.green[1]);
+    var rot = (heading != null) ? (br - heading) : br;
+    $('needle').setAttribute('transform', 'rotate(' + rot.toFixed(1) + ' 50 50)');
+    $('dn').textContent = (heading != null)
+      ? ('向いとる方から ' + Math.round(((rot % 360) + 360) % 360) + '°')
+      : ('真北から ' + Math.round(br) + '°（端末の方位が取れてない）');
+  }
+
+  // ── 打った所を残す ─────────────────────────────────
+  function mark(club){
+    if (!pos){ $('log').textContent = '測位待ちで残せん'; return; }
+    var h = C.holes[hole-1];
+    var rest = (h.green && pos.accuracy <= ACC_MAX)
+      ? Math.round(dm(pos.latitude, pos.longitude, h.green[0], h.green[1]) * YD) : '';
+    shots.push({t:new Date().toISOString(), hole:hole, club:club,
+                lat:+pos.latitude.toFixed(7), lon:+pos.longitude.toFixed(7),
+                acc:Math.round(pos.accuracy), alt:(pos.altitude!=null?Math.round(pos.altitude):''),
+                rest_yd:rest});
+    save();
+    $('log').textContent = hole + '番 ' + club + ' を残した（' + shots.length + '打目・残り'
+      + (rest === '' ? '—' : rest + 'yd') + '）';
+  }
+  $('undo').onclick = function(){
+    if (!shots.length) return;
+    var s = shots.pop(); save();
+    $('log').textContent = s.hole + '番 ' + s.club + ' を消した（残り ' + shots.length + '件）';
+  };
+
+  function save(){
+    try { localStorage.setItem('aigolf_caddie', JSON.stringify(shots)); } catch(e){}
+  }
+  function load(){
+    try { shots = JSON.parse(localStorage.getItem('aigolf_caddie') || '[]'); } catch(e){ shots = []; }
+    if (shots.length) $('log').textContent = '前回の続き：' + shots.length + '件';
+  }
+
+  $('save').onclick = function(){
+    if (!shots.length){ $('log').textContent = '残っとる打が無い'; return; }
+    var L = ['t_utc,hole,club,lat,lon,acc_m,alt_m,rest_yd'];
+    shots.forEach(function(s){
+      L.push([s.t,s.hole,s.club,s.lat,s.lon,s.acc,s.alt,s.rest_yd].join(','));
+    });
+    var blob = new Blob([L.join('\n')], {type:'text/csv'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'caddie_' + (C ? C.course_id : 'course') + '_'
+               + new Date().toISOString().slice(0,10).replace(/-/g,'') + '.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    $('log').textContent = shots.length + '件を保存した';
+  };
+})();
+</script>
+</body></html>
+
+</body>
+</html>

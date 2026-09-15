@@ -85,6 +85,28 @@ body{
 .count .num{font-size:21px; color:var(--ink); margin-right:2px}
 
 /* ── ホールと番手 ─────────────────────────────────── */
+/* ── ラウンドの頭で1回だけ（コース名・地面） ───────────── */
+.round{display:grid; grid-template-columns:1fr auto; gap:8px; align-items:stretch}
+.round input{
+  min-width:0; height:44px; padding:0 12px;
+  border:1px solid var(--line); border-radius:10px;
+  background:var(--surface); color:var(--ink); font-size:16px; font-family:inherit;
+}
+.round input::placeholder{color:var(--ink-mute)}
+.round input:not([value=""]):valid{border-color:var(--line)}
+.ground{display:flex; gap:6px}
+.ground button{
+  flex:none; min-width:64px; height:44px; padding:0 10px;
+  border:1px solid var(--line); background:var(--surface-2); color:var(--ink);
+  border-radius:10px; font-size:15px; font-weight:600; cursor:pointer; font-family:inherit;
+}
+.ground button[aria-pressed="true"]{background:var(--ink); color:var(--surface); border-color:var(--ink)}
+/* ★未記入は薄く光らせて気づかせる（うるさくはせん） */
+.round.todo input, .round.todo .ground button{border-color:var(--warn,#c98a2e)}
+@media (max-width:380px){
+  .round{grid-template-columns:1fr}
+  .ground button{flex:1; min-width:0}
+}
 .setup{display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:stretch}
 .hole{
   display:flex; align-items:center; gap:2px;
@@ -221,6 +243,14 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     <div class="count"><span class="num" id="nRec">0</span>件</div>
   </div>
 
+  <!-- ★ラウンドの頭で1回だけ触る所（§12 運用フロー）。
+       地面の一言でサークルが 32→20yd に縮む＝**一番安い改善**（§3.2） -->
+  <div class="round" id="roundbar">
+    <input id="course" type="text" inputmode="text" autocomplete="off"
+           placeholder="コース名を入れる" maxlength="40">
+    <div class="ground" id="ground" role="group" aria-label="今日の地面"></div>
+  </div>
+
   <div class="setup">
     <div class="hole">
       <button type="button" id="holeDown" aria-label="ホールを戻す">−</button>
@@ -283,7 +313,9 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   var KEY="aigolf.roundlog.v1";
   var CLUBS=["D","3W","5W","U","4I","5I","6I","7I","8I","9I","PW","AW","SW","PT"];
 
-  var S={recs:[],hole:1,shot:1,club:"D",pending:null,player:""};
+  // ★course/ground を足した（2026-09-14）。どっちも**空のままでも記録は止めん**。
+  //   ⚠空は「未記入」であって「普通」やない。CSVには空で出す（§5.3 NULL と none は別物）
+  var S={recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:""};
   var fix=null;      // 直近の測位
   var geoErr=null;   // 画面に出す文言
   var errCode=null;  // 1=拒否 2=取れん 3=時間切れ
@@ -334,6 +366,8 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
       if(o&&Array.isArray(o.recs)){
         S.recs=o.recs; S.hole=o.hole||1; S.shot=o.shot||1;
         S.club=o.club||"D"; S.pending=o.pending||null; S.player=o.player||"";
+        // ★古い保存には無い＝空で埋める（既定値に化けさせん）
+        S.course=o.course||""; S.ground=o.ground||"";
       }
     }catch(e){}
   }
@@ -441,6 +475,15 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     for(var i=0;i<cs.length;i++)
       cs[i].setAttribute("aria-pressed", cs[i].textContent===S.club?"true":"false");
 
+    /* ★コース名と地面（2026-09-14）。打つ手は止めん＝未記入でも記録は進む。
+       ⚠ただし薄く光らせて気づかせる。地面の一言でサークルが 32→20yd に縮む（§3.2）。
+       ⚠**「普通」を既定にせん。**空は「未記入」であって「普通」やない（§5.3） */
+    if($("course").value!==S.course) $("course").value=S.course;
+    var gs=$("ground").children;
+    for(var j=0;j<gs.length;j++)
+      gs[j].setAttribute("aria-pressed", gs[j].getAttribute("data-g")===S.ground?"true":"false");
+    $("roundbar").className = "round"+((S.course&&S.ground)?"":" todo");
+
     /* ★名前が空なら最初から聞く。打つ手は止めん（別枠やから無視して押せる）。
        2026-09-07 に43行が丸ごと player 空で来て、ファイル名でしか
        誰のぶんか分からんかった。あとから混ぜんための列やのに効いてなかった */
@@ -466,6 +509,21 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     b.type="button"; b.textContent=c; b.setAttribute("aria-pressed","false");
     b.onclick=function(){ S.club=c; save(); paint(); };
     $("clubs").appendChild(b);
+  });
+
+  /* ★コース名・地面の配線（2026-09-14）
+     ⚠ボタンは**JSで作る**＝番手と同じ道。こうせんと検査がボタンを掴めん
+     （2026-09-14：HTMLに直書きしたら test_roundlog.js が「0個」と鳴った） */
+  $("course").oninput=function(){ S.course=this.value.trim(); save(); paint(); };
+  [["firm","硬い"],["normal","普通"],["soft","柔らかい"]].forEach(function(g){
+    var b=document.createElement("button");
+    b.type="button"; b.textContent=g[1];
+    b.setAttribute("data-g",g[0]); b.setAttribute("aria-pressed","false");
+    b.onclick=function(){
+      S.ground = (S.ground===g[0]) ? "" : g[0];  // ★同じのをもう一回押したら未記入に戻せる
+      save(); paint();
+    };
+    $("ground").appendChild(b);
   });
 
   $("hit").onclick=function(){
@@ -535,9 +593,12 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
 
   /* ★stale の2列は末尾に足す（列名で読む分にも、位置で読む分にも既存CSVを壊さん）。
      押した時の測位が何秒前の点やったか。空欄＝この列が無かった頃の記録 */
+  // ★course / ground を末尾に足した（2026-09-14）。
+  //   ⚠**末尾に足す**のが肝＝既存のCSVを読む道具が列の位置で拾っとっても壊れん
   var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time",
             "ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time",
-            "dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty"];
+            "dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty",
+            "course","ground"];
   function q(v){
     v=String(v==null?"":v);
     return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
@@ -551,7 +612,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
         r.ballAcc==null?"":r.ballAcc, r.ballAlt==null?"":r.ballAlt, r.ballT==null?"":r.ballT,
         r.m==null?"":r.m.toFixed(1), r.yd==null?"":r.yd.toFixed(1), r.brg==null?"":r.brg.toFixed(1),
         r.teeStale==null?"":r.teeStale, r.ballStale==null?"":r.ballStale,
-        r.penalty||""].join(","));
+        r.penalty||"", q(S.course), S.ground||""].join(","));
     });
     return out.join("\n");
   }
