@@ -94,6 +94,18 @@ body{
 .green .gd{font-size:13px; color:var(--ink-mute); margin-left:6px}
 .green .gp{font-size:13px; color:var(--ink-mute); margin-left:auto}
 .green.stale .gy{opacity:.35}
+.green-choice{
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r);
+  padding:10px 12px; box-shadow:var(--shadow); display:grid; gap:8px;
+}
+.green-choice[hidden]{display:none}
+.green-choice p{margin:0; font-size:14px; color:var(--ink-mute); text-align:center}
+.green-choice .choices{display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px}
+.green-choice button{
+  min-height:42px; border:1px solid var(--line); border-radius:10px;
+  background:var(--surface-2); color:var(--ink); font:inherit; cursor:pointer;
+}
+.green-choice button[aria-pressed="true"]{background:var(--ink); color:var(--surface); border-color:var(--ink)}
 
 /* ── ホールと番手 ─────────────────────────────────── */
 /* ── ラウンドの頭で1回だけ（コース名・地面） ───────────── */
@@ -151,7 +163,10 @@ body{
 }
 
 /* ── 主役のボタン ─────────────────────────────────── */
-main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
+main{display:grid; gap:12px; min-height:0}
+.stroke-counter{text-align:center; padding:2px 8px; font-variant-numeric:tabular-nums}
+.stroke-counter .now{font-size:52px; font-weight:700; line-height:1; letter-spacing:-.03em}
+.stroke-counter .breakdown{margin-top:7px; font-size:15px; color:var(--ink-mute)}
 .hit{
   width:100%; height:100%; min-height:190px;
   border:0; border-radius:20px; cursor:pointer;
@@ -317,7 +332,20 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     <span class="gp" id="gPar"></span>
   </div>
 
+  <div class="green-choice" id="greenChoice" hidden>
+    <p id="greenPrompt">本日使用するグリーンを選んでください。各ホールで変更できます。</p>
+    <div class="choices" role="group" aria-label="使用するグリーン">
+      <button type="button" id="greenA" data-side="A">Aグリーン</button>
+      <button type="button" id="greenB" data-side="B">Bグリーン</button>
+      <button type="button" id="greenUnknown" data-side="">わからない</button>
+    </div>
+  </div>
+
   <main>
+    <div class="stroke-counter" aria-live="polite">
+      <div class="now" id="strokeCount">1打目</div>
+      <div class="breakdown" id="strokeBreakdown">ここまで 0打</div>
+    </div>
     <button type="button" class="hit" id="hit" data-state="tee" disabled>
       <span class="lead" id="hitLead">HOLE 1 ・ 1打目</span>
       <span class="big" id="hitBig">測位を待っています</span>
@@ -403,12 +431,12 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     return out;
   })();
   var KEY="aigolf.roundlog.v2."+DEV, INTRO_KEY="aigolf.roundlog.intro."+DEV;
-  var S={recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:"",summary:null,undo:[]};
+  var S={recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:"",summary:null,undo:[],greenSide:"",greenChoiceMade:false,nine:""};
   var fix=null, geoErr=null, errCode=null, asked=false, t0=0, perm="?", watchId=null;
   var nudgeMsg="", nudgeTill=0, storageIssue=deviceStorageIssue, loadNotice="";
   var saveBlocked="", brokenBackupKey="";
   var STALE_S=15, ACC_WARN=20, GREEN_NEAR_M=20, COURSE_MAX_GREEN_M=1000;
-  /* input/course_rose.json のうち画面計算に必要な確認済み項目だけを同梱する。 */
+  /* 読込失敗時も記録を止めないため、旧形式の確認済みコースを予備として同梱する。 */
   var CRS={name:"ローズゴルフクラブ",holes:[
     {hole:1,par:5,green:[34.8920306,136.056549],green_ok:true},{hole:2,par:4,green:[34.8939767,136.055322],green_ok:true},
     {hole:3,par:3,green:[34.8935627,136.0569029],green_ok:true},{hole:4,par:4,green:[34.8921711,136.0601311],green_ok:true},
@@ -422,7 +450,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   ]};
   var $=function(id){ return document.getElementById(id); };
 
-  fetch("./course_rose.json").then(function(r){ return r.json(); })
+  fetch("./course_sakai.json").then(function(r){ return r.json(); })
     .then(function(j){ CRS=j; paint(); }).catch(function(){ /* 同梱データを継続使用する */ });
 
   function staleSec(){ return fix ? Math.max(0,Math.floor((Date.now()-fix.recv)/1000)) : null; }
@@ -488,7 +516,9 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
       validNullableNumber(r.m,0,null)&&validNullableNumber(r.yd,0,null)&&validNullableNumber(r.brg,0,360)&&
       typeof r.penalty==="string"&&has(PENALTY_LABELS,r.penalty)&&validInt(r.penaltyStrokes,0,2)&&
       (r.holeScore===null||validInt(r.holeScore,1,Number.MAX_SAFE_INTEGER))&&typeof r.specialTee==="boolean"&&
-      validNullableNumber(r.restYd,0,null)&&validNullableNumber(r.toGreenDeg,0,360);
+      validNullableNumber(r.restYd,0,null)&&validNullableNumber(r.toGreenDeg,0,360)&&
+      (!has(r,"greenSide")||["","A","B","single"].indexOf(r.greenSide)>=0)&&
+      (!has(r,"nine")||typeof r.nine==="string");
   }
   function validSavedRows(o){
     for(var i=0;i<o.recs.length;i++) if(!validRow(o.recs[i])) return false;
@@ -517,6 +547,29 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     if(backupBroken(v)) storageIssue="取り消しの履歴が破損していたため、記録一覧を保持し、取り消しを使用できない状態にしました。元の保存値は「"+brokenBackupKey+"」へ退避しました。";
     else storageIssue="取り消しの履歴が破損していたため、記録一覧を保持し、取り消しを使用できない状態にしました。元の保存値は退避できませんでした。CSVを書き出して保管してください。";
   }
+  function migrateRow(r){
+    if(!r||typeof r!=="object"||Array.isArray(r)) return;
+    /* 欠落の有無は行自身で判定する。現在読み込んでいるコースには依存させない。 */
+    if(!has(r,"greenSide")) r.greenSide="single";
+    if(!has(r,"nine")) r.nine="";
+  }
+  function migrateStateRows(o){
+    if(Array.isArray(o.recs)) o.recs.forEach(migrateRow);
+    if(o.pending&&typeof o.pending==="object"&&!Array.isArray(o.pending)) migrateRow(o.pending);
+  }
+  function migrateUndoHistory(a){
+    if(!Array.isArray(a)) return;
+    for(var i=0;i<a.length;i++){
+      if(typeof a[i]!=="string") continue;
+      try{
+        var snapshot=JSON.parse(a[i]);
+        if(snapshot&&typeof snapshot==="object"&&!Array.isArray(snapshot)){
+          migrateStateRows(snapshot);
+          a[i]=JSON.stringify(snapshot);
+        }
+      }catch(e){ /* 破損は後段の検証で利用者に知らせ、元の保存値を退避する。 */ }
+    }
+  }
   function normalizeLoaded(o){
     var restored=[];
     if(!validInt(o.hole,1,36)){o.hole=1;restored.push("ホール番号");}
@@ -525,6 +578,12 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     if(!has(o,"pending")) o.pending=null;
     o.course=typeof o.course==="string"?o.course:""; o.ground=typeof o.ground==="string"?o.ground:"";
     o.player=typeof o.player==="string"?o.player:""; o.summary=o.summary||null; if(!has(o,"undo")) o.undo=[];
+    o.greenSide=o.greenSide==="A"||o.greenSide==="B"?o.greenSide:"";
+    o.greenChoiceMade=typeof o.greenChoiceMade==="boolean"?o.greenChoiceMade:!!o.greenSide;
+    o.nine=typeof o.nine==="string"?o.nine:"";
+    /* PATCH-004 only supported a single green and saved neither field. */
+    migrateStateRows(o);
+    migrateUndoHistory(o.undo);
     if(restored.length) loadNotice=restored.join("・")+"が保存値にないか、使用できない値だったため、既定値に戻しました。記録一覧は保持しています。";
   }
   function load(){
@@ -551,7 +610,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   function undo(){
     if(!canChange()) return;
     if(!S.undo||!S.undo.length) return;
-    var remaining=S.undo.slice(0,-1),snapshot=JSON.parse(S.undo[S.undo.length-1]);
+    var remaining=S.undo.slice(0,-1),snapshot=JSON.parse(S.undo[S.undo.length-1]); normalizeLoaded(snapshot);
     replaceState(snapshot); S.undo=remaining; relinkPending(); save(); paint();
   }
   function geo(a,b){
@@ -566,28 +625,72 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     var n=["北","北北東","北東","東北東","東","東南東","南東","南南東","南","南南西","南西","西南西","西","西北西","北西","北北西"];
     return n[Math.round(d/22.5)%16];
   }
+  function courseHasNines(){
+    return !!(CRS&&Array.isArray(CRS.holes)&&CRS.holes.some(function(h){return h&&typeof h.nine==="string"&&h.nine;}));
+  }
+  function courseHasTwoGreens(){
+    return !!(CRS&&Array.isArray(CRS.holes)&&CRS.holes.some(function(h){return h&&h.greens&&(h.greens.A||h.greens.B);}));
+  }
+  function validGreen(g){return Array.isArray(g)&&validNumber(g[0],-90,90)&&validNumber(g[1],-180,180);}
+  function greensOf(h){
+    var out=[]; if(!h)return out;
+    if(validGreen(h.green)) out.push(h.green);
+    if(h.greens){if(validGreen(h.greens.A))out.push(h.greens.A);if(validGreen(h.greens.B))out.push(h.greens.B);}
+    return out;
+  }
+  function nearestNine(){
+    if(!courseHasNines()) return "";
+    /* The latest stroke fixes the nine only while that hole is in progress. */
+    var last=S.recs[S.recs.length-1];
+    if(last&&last.hole===S.hole&&last.holeScore==null&&last.nine){S.nine=last.nine;return S.nine;}
+    if(!fix) return S.nine||"";
+    var nearest=null,nine="";
+    CRS.holes.forEach(function(h){greensOf(h).forEach(function(g){
+      var m=geo({lat:fix.lat,lon:fix.lon},{lat:g[0],lon:g[1]}).m;
+      if(nearest===null||m<nearest){nearest=m;nine=h.nine||"";}
+    });});
+    if(nine) S.nine=nine;
+    return nine||S.nine||"";
+  }
   function holeInfo(){
-    if(!CRS||!CRS.holes) return null;
-    var h=CRS.holes[(S.hole-1)%18]; return h&&h.green?h:null;
+    return holeInfoFor(S.hole,nearestNine());
+  }
+  function holeInfoFor(hole,nine){
+    if(!CRS||!Array.isArray(CRS.holes)) return null;
+    for(var i=0;i<CRS.holes.length;i++){
+      var h=CRS.holes[i];
+      if(h&&h.hole===hole&&(!courseHasNines()||h.nine===nine)&&(validGreen(h.green)||h.greens)) return h;
+    }
+    return null;
+  }
+  function chosenGreen(h,side){
+    if(!h)return null;
+    if(validGreen(h.green))return h.green;
+    return h.greens&&validGreen(h.greens[side])?h.greens[side]:null;
   }
   function nearestGreenM(){
     if(!CRS||!Array.isArray(CRS.holes)||!fix) return null;
     var nearest=null;
     for(var i=0;i<CRS.holes.length;i++){
-      var green=CRS.holes[i]&&CRS.holes[i].green;
-      if(!Array.isArray(green)||!validNumber(green[0],-90,90)||!validNumber(green[1],-180,180)) continue;
-      var m=geo({lat:fix.lat,lon:fix.lon},{lat:green[0],lon:green[1]}).m;
-      if(nearest===null||m<nearest) nearest=m;
+      var all=greensOf(CRS.holes[i]);
+      for(var j=0;j<all.length;j++){
+        var green=all[j],m=geo({lat:fix.lat,lon:fix.lon},{lat:green[0],lon:green[1]}).m;
+        if(nearest===null||m<nearest) nearest=m;
+      }
     }
     return nearest;
   }
   function toGreen(){
-    var h=holeInfo(); if(!h||!fix) return null;
+    return toGreenFor(S.hole,nearestNine(),S.greenSide);
+  }
+  function toGreenFor(hole,nine,side){
+    var h=holeInfoFor(hole,nine); if(!h||!fix) return null;
+    if(h.greens&&!chosenGreen(h,side)) return {bad:"使用するグリーンを選んでいないため、残り距離を表示できません。",unknownGreen:true};
     if(fix.acc!=null&&fix.acc>ACC_WARN) return {bad:"測位精度が低いため、残り距離を表示できません（±"+fix.acc+"m）"};
     var nearest=nearestGreenM();
     if(nearest===null) return {bad:"コース内にいるか確認できないため、残り距離を表示できません。"};
     if(nearest>COURSE_MAX_GREEN_M) return {bad:"読み込んでいるコースから離れています。残り距離は表示しません。",offCourse:true,nearestGreenM:nearest};
-    var g=geo({lat:fix.lat,lon:fix.lon},{lat:h.green[0],lon:h.green[1]});
+    var green=chosenGreen(h,side),g=geo({lat:fix.lat,lon:fix.lon},{lat:green[0],lon:green[1]});
     return {yd:g.yd,m:g.m,brg:g.brg,par:h.par,ok:h.green_ok,nearestGreenM:nearest};
   }
   function got(p){
@@ -613,21 +716,27 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   }
   function pointRow(){
     var tg=toGreen();
-    return {id:String(Date.now())+"-"+String(Math.random()),hole:S.hole,shot:S.shot,club:S.club,
+    return {id:String(Date.now())+"-"+String(Math.random()),hole:S.hole,nine:nearestNine(),shot:S.shot,club:S.club,
       teeLat:fix.lat,teeLon:fix.lon,teeAcc:fix.acc,teeAlt:fix.alt,teeT:fix.t,teeStale:staleSec(),
       ballLat:null,ballLon:null,ballAcc:null,ballAlt:null,ballT:null,ballStale:null,m:null,yd:null,brg:null,
       penalty:"",penaltyStrokes:0,holeScore:null,specialTee:false,
-      restYd:(tg&&!tg.bad)?tg.yd:null,toGreenDeg:(tg&&!tg.bad)?tg.brg:null};
+      restYd:(tg&&!tg.bad)?tg.yd:null,toGreenDeg:(tg&&!tg.bad)?tg.brg:null,
+      greenSide:courseHasTwoGreens()?S.greenSide:"single"};
   }
   function finalizePending(){
-    var r=S.pending, g=geo({lat:r.teeLat,lon:r.teeLon},fix), tg=toGreen();
+    var r=S.pending, g=geo({lat:r.teeLat,lon:r.teeLon},fix), tg=toGreenFor(r.hole,r.nine||"",r.greenSide||"");
     r.ballLat=fix.lat; r.ballLon=fix.lon; r.ballAcc=fix.acc; r.ballAlt=fix.alt; r.ballT=fix.t;
     r.ballStale=staleSec(); r.m=g.m; r.yd=g.yd; r.brg=g.brg;
     r.restYd=(tg&&!tg.bad)?tg.yd:null; r.toGreenDeg=(tg&&!tg.bad)?tg.brg:null;
     S.pending=null;
   }
   function duplicatePendingFix(){ return S.pending&&S.pending.teeT===fix.t; }
-  function holeRows(h){ return S.recs.filter(function(r){return r.hole===h;}); }
+  function holeRows(h,nine){
+    if(nine==null)nine=nearestNine();
+    return S.recs.filter(function(r){return r.hole===h&&(!courseHasNines()||(r.nine||"")===nine);});
+  }
+  function holeLabel(h,nine){return (nine?nine+" ":"")+h+"番";}
+  function rowHoleLabel(r){return holeLabel(r.hole,r.nine||"");}
   function holeScore(h){
     return holeRows(h).reduce(function(n,r){return n+1+(Number(r.penaltyStrokes)||0);},0);
   }
@@ -644,12 +753,21 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     $("dot").className="dot"+(geoErr?" bad":acc==null?"":bad?" bad":acc<=8?" ok":" warn");
     $("fixText").innerHTML=fix?("測位 <b>±"+(acc==null?"?":acc)+"m</b>"+(bad?"　<b>"+bad+"</b>":"")):geoErr?geoErr:asked?"許可と測位を待っています…":"まだ測位していません";
     $("nRec").textContent=S.recs.length+"（確定待ち "+(S.pending?1:0)+"）";
-    $("holeNo").textContent=S.hole;
+    var currentNine=nearestNine(),currentLabel=holeLabel(S.hole,currentNine);
+    $("holeNo").textContent=currentLabel;
+    var rowsHere=holeRows(S.hole),penaltiesHere=rowsHere.reduce(function(n,r){return n+(Number(r.penaltyStrokes)||0);},0),swingsHere=rowsHere.length;
+    $("strokeCount").textContent=(swingsHere+1)+"打目";
+    $("strokeBreakdown").textContent="ここまで "+swingsHere+"打"+(penaltiesHere?" ＋ 罰打 "+penaltiesHere+" ＝ スコア "+(swingsHere+penaltiesHere):"");
+    var dual=courseHasTwoGreens(),greenChoice=$("greenChoice"); greenChoice.hidden=!dual;
+    $("greenPrompt").textContent=S.hole===1&&!S.greenChoiceMade?"本日使用するグリーンを選んでください。各ホールで変更できます。":"使用するグリーンは各ホールで変更できます。";
+    $("greenA").setAttribute("aria-pressed",S.greenSide==="A"?"true":"false");
+    $("greenB").setAttribute("aria-pressed",S.greenSide==="B"?"true":"false");
+    $("greenUnknown").setAttribute("aria-pressed",S.greenChoiceMade&&!S.greenSide?"true":"false");
     var gb=$("greenBox"),g=toGreen();
     if(!g) gb.hidden=true; else { gb.hidden=false; if(g.bad){gb.className="green stale";$("gYd").textContent="—";$("gDeg").textContent=g.bad;$("gPar").textContent="";}
       else {gb.className="green";$("gYd").textContent=Math.round(g.yd);$("gDeg").textContent="グリーンまで ／ 方位 "+Math.round(g.brg)+"°";$("gPar").textContent=(g.par?("par"+g.par):"")+(g.ok?"":" ※未確認");}}
     var b=$("hit"); b.disabled=!!saveBlocked; b.dataset.state=!fix?"geo":"tee";
-    $("hitLead").textContent=!fix?"はじめに1回だけ":"HOLE "+S.hole+" ・ "+S.shot+"打目（"+S.club+"）";
+    $("hitLead").textContent=!fix?"はじめに1回だけ":currentLabel+" ・ "+(swingsHere+1)+"打目（"+S.club+"）";
     $("hitBig").textContent=!fix?(asked?"もう一度測位する":"位置情報をオンにする"):"この位置から打つ";
     $("hitSub").textContent=!fix?(asked?"許可画面では「Webサイトの使用中は許可」を選んでください":"押すと端末が位置情報の許可を確認します"):
       bad?bad+"。記録はできますが、数秒待つこともできます":Date.now()<nudgeTill?nudgeMsg:"打つ前に、打つ位置で押してください";
@@ -661,10 +779,10 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     if(last&&last.penalty) $("penaltyStrokes").value=String(last.penaltyStrokes||0);
     var L=$("last");
     if(!last){L.className="last empty";L.textContent="まだスイングを記録していません";}
-    else if(last.penalty){L.className="last";L.innerHTML='<div class="yd"><span class="num">'+PENALTY_LABELS[last.penalty]+'</span></div><div class="meta"><b>'+last.club+'</b>　終点は未確定です<br>HOLE '+last.hole+' ・ '+last.shot+'打目　罰打 '+last.penaltyStrokes+'打</div><div class="meta">—</div>';}
-    else if(last.yd!=null){L.className="last";L.innerHTML='<div class="yd"><span class="num">'+Math.round(last.yd)+'</span><span>yd</span></div><div class="meta"><b>'+last.club+'</b>　'+compass(last.brg)+' '+Math.round(last.brg)+'°<br>HOLE '+last.hole+' ・ '+last.shot+'打目</div><div class="meta">確定</div>';}
-    else {L.className="last empty";L.textContent="HOLE "+last.hole+" ・ "+last.shot+"打目は終点の確定待ちです";}
-    $("summary").hidden=!S.summary; if(S.summary) $("summary").textContent="HOLE "+S.summary.hole+"：スイング "+S.summary.swings+"回、罰打 "+S.summary.penalties+"打、スコア "+S.summary.score;
+    else if(last.penalty){L.className="last";L.innerHTML='<div class="yd"><span class="num">'+PENALTY_LABELS[last.penalty]+'</span></div><div class="meta"><b>'+last.club+'</b>　終点は未確定です<br>'+rowHoleLabel(last)+' ・ '+last.shot+'打目　罰打 '+last.penaltyStrokes+'打</div><div class="meta">—</div>';}
+    else if(last.yd!=null){L.className="last";L.innerHTML='<div class="yd"><span class="num">'+Math.round(last.yd)+'</span><span>yd</span></div><div class="meta"><b>'+last.club+'</b>　'+compass(last.brg)+' '+Math.round(last.brg)+'°<br>'+rowHoleLabel(last)+' ・ '+last.shot+'打目</div><div class="meta">確定</div>';}
+    else {L.className="last empty";L.textContent=rowHoleLabel(last)+" ・ "+last.shot+"打目は終点の確定待ちです";}
+    $("summary").hidden=!S.summary; if(S.summary) $("summary").textContent=holeLabel(S.summary.hole,S.summary.nine||"")+"：スイング "+S.summary.swings+"回、罰打 "+S.summary.penalties+"打、スコア "+S.summary.score;
     var cs=$("clubs").children; for(var i=0;i<cs.length;i++) cs[i].setAttribute("aria-pressed",cs[i].textContent===S.club?"true":"false");
     if($("course").value!==S.course) $("course").value=S.course;
     var gs=$("ground").children; for(var j=0;j<gs.length;j++) gs[j].setAttribute("aria-pressed",gs[j].getAttribute("data-g")===S.ground?"true":"false");
@@ -679,6 +797,13 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   setInterval(function(){if(asked)paint();},2000);
   CLUBS.forEach(function(c){var b=document.createElement("button");b.type="button";b.textContent=c;b.setAttribute("aria-pressed","false");b.onclick=function(){if(!canChange())return;S.club=c;save();paint();};$("clubs").appendChild(b);});
   [["firm","硬い"],["normal","普通"],["soft","柔らかい"]].forEach(function(g){var b=document.createElement("button");b.type="button";b.textContent=g[1];b.setAttribute("data-g",g[0]);b.onclick=function(){if(!canChange())return;S.ground=S.ground===g[0]?"":g[0];save();paint();};$("ground").appendChild(b);});
+  function setGreenSide(side){
+    if(!canChange()||["","A","B"].indexOf(side)<0)return;
+    remember(); S.greenSide=side; S.greenChoiceMade=true; save(); paint();
+  }
+  $("greenA").onclick=function(){setGreenSide("A");};
+  $("greenB").onclick=function(){setGreenSide("B");};
+  $("greenUnknown").onclick=function(){setGreenSide("");};
   $("course").oninput=function(){if(!canChange())return;S.course=this.value.trim();save();paint();};
   $("hit").onclick=function(){
     if(!canChange())return;
@@ -704,12 +829,19 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   $("holeOut").onclick=function(){
     if(!canChange())return;
     if(!S.pending||!fix)return; if(duplicatePendingFix()){nudge("同じ測位では終点を確定できません。数秒待ってからもう一度お試しください");return;}
-    remember(); var h=S.hole; finalizePending(); var rows=holeRows(h),score=holeScore(h),pen=rows.reduce(function(n,r){return n+(Number(r.penaltyStrokes)||0);},0);
-    rows[rows.length-1].holeScore=score; S.summary={hole:h,swings:rows.length,penalties:pen,score:score}; S.hole=h+1; S.shot=1; if(S.club==="PT")S.club="D"; save(); paint();
+    remember(); var h=S.hole,nine=S.pending.nine||nearestNine(); finalizePending(); var rows=holeRows(h,nine),score=rows.reduce(function(n,r){return n+1+(Number(r.penaltyStrokes)||0);},0),pen=rows.reduce(function(n,r){return n+(Number(r.penaltyStrokes)||0);},0);
+    rows[rows.length-1].holeScore=score; S.summary={hole:h,nine:nine,swings:rows.length,penalties:pen,score:score}; S.hole=courseHasNines()&&h>=9?1:h+1; S.shot=1; S.nine=""; if(S.club==="PT")S.club="D"; save(); paint();
   };
   $("undo").onclick=undo;
-  function reopenHole(h){
-    var rows=holeRows(h),last=rows[rows.length-1];
+  function lastCompletedHole(){
+    for(var i=S.recs.length-1;i>=0;i--){
+      var r=S.recs[i];
+      if(r&&r.holeScore!=null) return {hole:r.hole,nine:r.nine||""};
+    }
+    return null;
+  }
+  function reopenHole(h,nine){
+    var rows=holeRows(h,nine),last=rows[rows.length-1];
     if(!last||last.holeScore==null) return false;
     last.holeScore=null;
     last.ballLat=last.ballLon=last.ballAcc=last.ballAlt=last.ballT=last.ballStale=last.m=last.yd=last.brg=null;
@@ -720,21 +852,25 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   function goHole(d){
     if(!canChange())return;
     if(S.pending){nudge("確定待ちのスイングがあります。ホールアウトまたは取り消しを選んでください");return;}
-    var h=S.hole+d;if(h<1)return;remember();S.hole=h;
-    if(!(d<0&&reopenHole(h))) S.shot=holeRows(h).reduce(function(n,r){return Math.max(n,r.shot+1+(Number(r.penaltyStrokes)||0));},1);
+    var h=S.hole+d;if(courseHasNines()){if(h>9)h=1;if(h<1)h=9;}else if(h<1)return;
+    var previous=d<0&&courseHasNines()?lastCompletedHole():null;
+    if(previous){h=previous.hole;}
+    var previousNine=previous?previous.nine:"";
+    remember();S.hole=h;if(previous)S.nine=previousNine;
+    if(!(d<0&&reopenHole(h,previous?previousNine:null))) S.shot=holeRows(h,previous?previousNine:null).reduce(function(n,r){return Math.max(n,r.shot+1+(Number(r.penaltyStrokes)||0));},1);
     if(S.club==="PT")S.club="D";S.summary=null;save();paint();
   }
   $("holeUp").onclick=function(){goHole(1);}; $("holeDown").onclick=function(){goHole(-1);};
   function setWho(v){if(!canChange())return;S.player=String(v||"").trim();save();paint();}
   $("whoOk").onclick=function(){setWho($("who").value);}; $("who").onkeydown=function(e){if(e.key==="Enter"){e.preventDefault();setWho(this.value);}};
-  var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time","ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time","dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty","course","ground","rest_yd","to_green_deg","penalty_strokes","hole_score"];
+  var HEAD=["player","device","hole","shot","club","tee_lat","tee_lon","tee_acc_m","tee_alt_m","tee_time","ball_lat","ball_lon","ball_acc_m","ball_alt_m","ball_time","dist_m","dist_yd","bearing_deg","tee_stale_s","ball_stale_s","penalty","course","ground","rest_yd","to_green_deg","penalty_strokes","hole_score","green_side"];
   function q(v){v=String(v==null?"":v);return /[\",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
-  function csv(){var out=[HEAD.join(",")];S.recs.forEach(function(r){out.push([q(S.player),DEV,r.hole,r.shot,r.club,r.teeLat.toFixed(7),r.teeLon.toFixed(7),r.teeAcc,r.teeAlt==null?"":r.teeAlt,r.teeT,r.ballLat==null?"":r.ballLat.toFixed(7),r.ballLon==null?"":r.ballLon.toFixed(7),r.ballAcc==null?"":r.ballAcc,r.ballAlt==null?"":r.ballAlt,r.ballT==null?"":r.ballT,r.m==null?"":r.m.toFixed(1),r.yd==null?"":r.yd.toFixed(1),r.brg==null?"":r.brg.toFixed(1),r.teeStale==null?"":r.teeStale,r.ballStale==null?"":r.ballStale,r.penalty||"",q(S.course),S.ground||"",r.restYd==null?"":r.restYd.toFixed(1),r.toGreenDeg==null?"":r.toGreenDeg.toFixed(1),Number(r.penaltyStrokes)||0,r.holeScore==null?"":r.holeScore].join(","));});return out.join("\n");}
+  function csv(){var out=[HEAD.join(",")];S.recs.forEach(function(r){out.push([q(S.player),DEV,r.hole,r.shot,r.club,r.teeLat.toFixed(7),r.teeLon.toFixed(7),r.teeAcc,r.teeAlt==null?"":r.teeAlt,r.teeT,r.ballLat==null?"":r.ballLat.toFixed(7),r.ballLon==null?"":r.ballLon.toFixed(7),r.ballAcc==null?"":r.ballAcc,r.ballAlt==null?"":r.ballAlt,r.ballT==null?"":r.ballT,r.m==null?"":r.m.toFixed(1),r.yd==null?"":r.yd.toFixed(1),r.brg==null?"":r.brg.toFixed(1),r.teeStale==null?"":r.teeStale,r.ballStale==null?"":r.ballStale,r.penalty||"",q(S.course),S.ground||"",r.restYd==null?"":r.restYd.toFixed(1),r.toGreenDeg==null?"":r.toGreenDeg.toFixed(1),Number(r.penaltyStrokes)||0,r.holeScore==null?"":r.holeScore,r.greenSide||""].join(","));});return out.join("\n");}
   var armed=false;
   $("open").onclick=function(){$("player").value=S.player;$("csv").value=csv();$("sheetCount").textContent=S.recs.length+"件（端末識別子 "+DEV+"）";armed=false;$("wipeNote").hidden=true;$("wipe").textContent="すべて削除";$("sheet").hidden=false;};
   $("player").oninput=function(){if(!canChange())return;S.player=this.value.trim();save();$("csv").value=csv();}; $("close").onclick=function(){$("sheet").hidden=true;};
   $("copy").onclick=function(){var t=$("csv");t.focus();t.select();t.setSelectionRange(0,999999);var done=function(){$("copy").textContent="コピーしました";setTimeout(function(){$("copy").textContent="すべてコピー";},1600);};if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(t.value).then(done,function(){$("copy").textContent="長押しで選択してコピーしてください";});else try{document.execCommand("copy");done();}catch(e){$("copy").textContent="長押しで選択してコピーしてください";}};
-  $("wipe").onclick=function(){if(!canChange())return;if(!armed){armed=true;$("wipeNote").hidden=false;$("wipe").textContent="削除を確定する";return;}remember();var u=S.undo;replaceState({recs:[],hole:1,shot:1,club:S.club,pending:null,player:S.player,course:S.course,ground:S.ground,summary:null,undo:u});save();paint();$("sheet").hidden=true;};
+  $("wipe").onclick=function(){if(!canChange())return;if(!armed){armed=true;$("wipeNote").hidden=false;$("wipe").textContent="削除を確定する";return;}remember();var u=S.undo;replaceState({recs:[],hole:1,shot:1,club:S.club,pending:null,player:S.player,course:S.course,ground:S.ground,summary:null,undo:u,greenSide:"",greenChoiceMade:false,nine:""});save();paint();$("sheet").hidden=true;};
   $("pendingCancel").onclick=function(){
     if(saveBlocked!=="pending")return; S.pending=null; saveBlocked=""; storageIssue="";
     loadNotice="利用者の選択により、一致しなかった確定待ちを取り消しました。記録一覧は保持しています。"; save(); paint();
@@ -746,7 +882,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   };
   $("brokenStart").onclick=function(){
     if(saveBlocked!=="broken"||!brokenBackupKey)return;
-    replaceState({recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:"",summary:null,undo:[]});
+    replaceState({recs:[],hole:1,shot:1,club:"D",pending:null,player:"",course:"",ground:"",summary:null,undo:[],greenSide:"",greenChoiceMade:false,nine:""});
     saveBlocked=""; storageIssue=""; loadNotice="退避した元の値を残したまま、新しい記録を開始しました。退避先は「"+brokenBackupKey+"」です。"; save(); paint();
   };
   $("introOk").onclick=function(){try{localStorage.setItem(INTRO_KEY,"1");}catch(e){storageIssue="初回案内の確認状態を保存できませんでした。ラウンド記録も保存できない可能性があります。CSV書き出しをご利用ください。";paint();}$("intro").hidden=true;};
