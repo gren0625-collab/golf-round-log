@@ -407,7 +407,7 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
   var fix=null, geoErr=null, errCode=null, asked=false, t0=0, perm="?", watchId=null;
   var nudgeMsg="", nudgeTill=0, storageIssue=deviceStorageIssue, loadNotice="";
   var saveBlocked="", brokenBackupKey="";
-  var STALE_S=15, ACC_WARN=20, GREEN_NEAR_M=20;
+  var STALE_S=15, ACC_WARN=20, GREEN_NEAR_M=20, COURSE_MAX_GREEN_M=1000;
   /* input/course_rose.json のうち画面計算に必要な確認済み項目だけを同梱する。 */
   var CRS={name:"ローズゴルフクラブ",holes:[
     {hole:1,par:5,green:[34.8920306,136.056549],green_ok:true},{hole:2,par:4,green:[34.8939767,136.055322],green_ok:true},
@@ -570,11 +570,25 @@ main{display:grid; grid-template-rows:1fr auto; gap:12px; min-height:0}
     if(!CRS||!CRS.holes) return null;
     var h=CRS.holes[(S.hole-1)%18]; return h&&h.green?h:null;
   }
+  function nearestGreenM(){
+    if(!CRS||!Array.isArray(CRS.holes)||!fix) return null;
+    var nearest=null;
+    for(var i=0;i<CRS.holes.length;i++){
+      var green=CRS.holes[i]&&CRS.holes[i].green;
+      if(!Array.isArray(green)||!validNumber(green[0],-90,90)||!validNumber(green[1],-180,180)) continue;
+      var m=geo({lat:fix.lat,lon:fix.lon},{lat:green[0],lon:green[1]}).m;
+      if(nearest===null||m<nearest) nearest=m;
+    }
+    return nearest;
+  }
   function toGreen(){
     var h=holeInfo(); if(!h||!fix) return null;
     if(fix.acc!=null&&fix.acc>ACC_WARN) return {bad:"測位精度が低いため、残り距離を表示できません（±"+fix.acc+"m）"};
+    var nearest=nearestGreenM();
+    if(nearest===null) return {bad:"コース内にいるか確認できないため、残り距離を表示できません。"};
+    if(nearest>COURSE_MAX_GREEN_M) return {bad:"読み込んでいるコースから離れています。残り距離は表示しません。",offCourse:true,nearestGreenM:nearest};
     var g=geo({lat:fix.lat,lon:fix.lon},{lat:h.green[0],lon:h.green[1]});
-    return {yd:g.yd,m:g.m,brg:g.brg,par:h.par,ok:h.green_ok};
+    return {yd:g.yd,m:g.m,brg:g.brg,par:h.par,ok:h.green_ok,nearestGreenM:nearest};
   }
   function got(p){
     geoErr=null; errCode=null;
